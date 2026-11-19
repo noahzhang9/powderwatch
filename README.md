@@ -5,7 +5,7 @@ It compares deterministic models, regional high-res models and ensembles from
 [Open-Meteo](https://open-meteo.com/), runs them all through one set of snow physics, and tracks
 station snow depth against each station's own history, with an ensemble-driven snowpack projection.
 
-Design, data sources, methods and roadmap: [docs/proposal.md](docs/proposal.md).
+Design, data sources, methods and roadmap: [docs/proposal.md](docs/proposal.md). Conventions and invariants for contributors and coding agents: [AGENTS.md](AGENTS.md).
 
 ## Run locally
 
