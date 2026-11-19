@@ -14,6 +14,9 @@ export interface ChartPalette {
   proj: { line: string; outer: string; inner: string };
   /** Ordinal snow-amount ramp, least → most. */
   snowRamp: string[];
+  /** Text colour that reads on each ramp step. */
+  snowInk: string[];
+  mixed: string;
   rain: string;
   lastSeason: string;
   /** Sequential ramp ordered from least to most emphasis on the current surface. */
@@ -32,7 +35,9 @@ export function readPalette(): ChartPalette {
     seq: { s100: v('--seq-100'), s200: v('--seq-200'), s300: v('--seq-300'), s450: v('--seq-450'), s600: v('--seq-600'), s700: v('--seq-700') },
     critical: v('--critical'), warning: v('--warning'),
     proj: { line: v('--proj-line'), outer: v('--proj-band-outer'), inner: v('--proj-band-inner') },
-    snowRamp: [1, 2, 3, 4, 5, 6].map((i) => v(`--snow-${i}`)),
+    snowRamp: [1, 2, 3, 4, 5].map((i) => v(`--snow-${i}`)),
+    snowInk: [1, 2, 3, 4, 5].map((i) => v(`--snow-ink-${i}`)),
+    mixed: v('--mixed'),
     rain: v('--rain'),
     lastSeason: v('--last-season'),
     emphasisRamp: dark
@@ -52,7 +57,7 @@ export function alpha(hex: string, a: number): string {
 }
 
 /** Upper bounds (cm) of the snow-amount classes; the last class is open-ended. */
-export const SNOW_CLASSES_CM = [2.5, 5, 10, 20, 30];
+export const SNOW_CLASSES_CM = [2.5, 7.5, 15, 30]; // ≈ <1, 1–3, 3–6, 6–12, 12+ in
 
 /** Ramp step (0–5) for a daily snow amount in cm. */
 export function snowClass(cm: number | null | undefined): number {

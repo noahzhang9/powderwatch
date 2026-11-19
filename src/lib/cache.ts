@@ -97,7 +97,13 @@ export async function cachedJson<T>(url: string, ttlSec: number): Promise<T> {
       return stored.data as T;
     }
     const fetchFresh = withSlot(async () => {
-      const res = await fetch(url);
+      let res = await fetch(url);
+      // Rate limits and server hiccups: retry twice with jittered backoff (~5 s, ~15 s).
+      for (const waitMs of [5000, 15000]) {
+        if (res.ok || !(res.status === 429 || res.status >= 500)) break;
+        await new Promise((r) => setTimeout(r, waitMs * (0.75 + Math.random() * 0.5)));
+        res = await fetch(url);
+      }
       if (!res.ok) {
         let reason = res.statusText;
         try {

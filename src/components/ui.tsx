@@ -18,7 +18,7 @@ export function Tile({ label, value, sub, title }: { label: string; value: React
   return (
     <div className="card px-4 py-3 min-w-0" title={title}>
       <div className="text-[11px] uppercase tracking-wide text-ink-3">{label}</div>
-      <div className="text-2xl font-semibold leading-tight mt-0.5 truncate">{value}</div>
+      <div className="text-2xl font-semibold leading-tight mt-0.5 break-words">{value}</div>
       {sub != null && <div className="text-xs text-ink-2 mt-0.5">{sub}</div>}
     </div>
   );

@@ -12,6 +12,11 @@ import { measuresNewSnow, recentReports, sumOrNull } from '../lib/recent';
 import { useFmt, type Fmt } from '../lib/prefs';
 import { isNum } from '../lib/stats';
 import { snowClass } from '../lib/palette';
+import { dailyCentres, dailyPhase } from '../lib/forecast';
+import { sinceLastVisit } from '../lib/visits';
+import { useNarrow } from '../hooks/useNarrow';
+import { Delta } from './storm/Panels';
+import { LOW_CENTRES } from './storm/Daily';
 import { addDays, dayLabel, daysBetween, localMidnightUnix, nowUnix, shortDate, todayIn, weekday } from '../lib/time';
 
 export function Dashboard() {
@@ -22,6 +27,7 @@ export function Dashboard() {
         Forecasts are a family-balanced blend of up to eight models at each resort's upper elevation, with their spread shown.
         Snow depths come from nearby measurement stations and are compared against those stations' own history.
       </p>
+      <WhereWhen />
       <Trips />
       <div className="grid lg:grid-cols-3 gap-4 mt-4">
         {RESORTS.map((r) => <ResortCard key={r.id} resort={r} />)}
@@ -103,10 +109,12 @@ function ResortCard({ resort }: { resort: Resort }) {
 
   const w7 = data ? windowStats(data, now, 168) : null;
   const o = obs.data;
+  const thin = o?.clim && o.clim.seasons.length < 10;
+  const gap = o ? summit.elevation - o.station.elevation : 0;
   return (
-    <a href={href('resort', resort.id)} className="card p-4 block hover:border-[var(--axis)] transition-colors">
+    <div className="card p-4">
       <div className="flex items-baseline justify-between gap-2">
-        <h2 className="text-lg font-semibold">{resort.name}</h2>
+        <h2 className="text-lg font-semibold"><a href={href('resort', resort.id)} className="hover:underline">{resort.name}</a></h2>
         <span className="text-xs text-ink-3">{resort.region}</span>
       </div>
 
@@ -114,15 +122,15 @@ function ResortCard({ resort }: { resort: Resort }) {
         <div className="text-[11px] uppercase tracking-wide text-ink-3">Snow depth (station)</div>
         {o?.last ? (
           <>
-            <div className="flex items-baseline gap-3">
+            <div className="flex items-baseline gap-3 flex-wrap">
               <span className="text-3xl font-semibold">{fmt.snow(o.last.value)}</span>
               <span className="text-sm text-ink-2">
                 {o.median != null && o.median >= 1 ? `${Math.round((100 * o.last.value) / o.median)}% of median` : 'median ~0'}
-                {o.pct != null && ` · ${Math.round(o.pct)}th pct`}
+                {thin ? ` · short record (${o.clim!.seasons.length} seasons)` : o.pct != null ? ` · ${Math.round(o.pct)}th pct` : ''}
               </span>
             </div>
-            <div className="text-xs text-ink-3">
-              {o.station.name}, {fmt.elev(o.station.elevation)} · {shortDate(o.last.date)}
+            <div className="text-xs text-ink-2">
+              {o.station.name}, {fmt.elev(o.station.elevation)}{gap > 300 && <> · {fmt.elev(gap)} below the summit band</>} · {shortDate(o.last.date)}
             </div>
             {o.week.snowCm != null && (
               <div className="text-xs text-ink-2 mt-1">
@@ -134,65 +142,80 @@ function ResortCard({ resort }: { resort: Resort }) {
             )}
           </>
         ) : (
-          <div className="text-sm text-ink-3">{obs.loading ? 'Loading…' : 'No recent station data'}</div>
+          <div className="text-sm text-ink-3" aria-live="polite">{obs.loading ? 'Loading…' : 'No recent station data'}</div>
         )}
       </div>
 
-      <div className="mt-4">
+      <div className="mt-4" aria-live="polite">
         <div className="text-[11px] uppercase tracking-wide text-ink-3">Forecast snowfall at {fmt.elev(summit.elevation)}</div>
-        {fc.error && <Notice tone="error">{fc.error.message}</Notice>}
-        {!data ? (
+        {fc.error ? (
+          <Notice tone="error">
+            {fc.error.message} <button type="button" className="btn ml-2" onClick={fc.retry}>Retry</button>
+          </Notice>
+        ) : !data ? (
           <div className="text-sm text-ink-3 py-3">Loading models…</div>
         ) : (
           <>
-            <div className="grid grid-cols-4 gap-2 mt-1">
-              {[72, 168, 240, 336].map((h) => {
+            <div className="grid grid-cols-3 gap-2 mt-1">
+              {[72, 168, 240].map((h) => {
                 const s = windowStats(data, now, h);
+                const d = h <= 168 ? sinceLastVisit(`${resort.id}:summit:${h}`, s.total) : null;
                 return (
                   <div key={h}>
                     <div className="text-xl font-semibold">{fmt.snow(s.total)}</div>
                     <div className="text-[11px] text-ink-3">{h / 24} days</div>
-                    {s.min != null && <div className="text-[11px] text-ink-2 tnum">{fmt.snowRange(s.min, s.max)}</div>}
+                    {s.min != null && <div className="text-[11px] text-ink-2 tnum">models {fmt.snowRange(s.min, s.max)}</div>}
+                    {d && <div className="text-[11px]"><Delta d={d} fmt={fmt} /></div>}
                   </div>
                 );
               })}
             </div>
             <WeekBars data={data} tz={resort.tz} fmt={fmt} />
             <div className="text-xs text-ink-2 mt-2">
-              {w7 && agreement(w7.total, w7.min, w7.max)}
-              {nextStorm ? ` · next big day: ${dayLabel(nextStorm.date)} (${fmt.snow(nextStorm.snowCm)})` : ''}
+              {w7 && `7-day: ${agreement(w7.total, w7.min, w7.max)}`}
+              {nextStorm ? ` · next big day: ${nextStorm.date === today ? 'today' : dayLabel(nextStorm.date)} (${fmt.snow(nextStorm.snowCm)})` : ''}
             </div>
             <div className="text-xs text-ink-2 mt-1">
-              Snow level next 72 h: {sl ? fmt.elevRange(sl[0], sl[1]) : 'little precipitation'}
-              {sl && sl[1] > summit.elevation - 100 && <span> · <b>rain risk up high</b></span>}
+              {sl ? <>Snow level next 72 h: {fmt.elevRange(sl[0], sl[1])}</> : 'Snow level: dry next 72 h'}
+              {sl && sl[1] > summit.elevation - 100 && <span> · <b>⚠ rain risk up high</b></span>}
             </div>
+            <a href={href('resort', resort.id)} className="text-xs underline text-ink-2 mt-2 inline-block">Storm tracker →</a>
           </>
         )}
       </div>
-    </a>
+    </div>
   );
 }
+
+/** Fixed scale shared by every card so bar heights compare across resorts. */
+const WEEK_SCALE_CM = 30;
 
 /** Compact 7-day blend: bar height and shade by snow amount, value underneath, rain flagged. */
 function WeekBars({ data, tz, fmt }: { data: BandForecast; tz: string; fmt: Fmt }) {
   const today = todayIn(tz);
   const days = data.blendDaily.filter((d) => d.date >= today).slice(0, 7);
-  const max = Math.max(25, ...days.map((d) => d.snowCm ?? 0));
+  const centres = dailyCentres(data.models, tz);
   return (
     <div className="grid grid-cols-7 gap-1 mt-3" role="list" aria-label="Next 7 days, blended snowfall">
       {days.map((d) => {
         const snow = d.snowCm ?? 0;
         const rain = d.rainMm ?? 0;
+        const step = snowClass(snow) + 1;
+        const low = (centres.get(d.date) ?? 0) < LOW_CENTRES;
         return (
-          <div key={d.date} role="listitem" className="flex flex-col items-center" title={`${d.date}: ${fmt.snow(snow)} snow${rain >= 1 ? `, ${fmt.water(rain)} rain` : ''}`}>
+          <div key={d.date} role="listitem" className="flex flex-col items-center" title={`${d.date}: ${fmt.snow(snow)} snow${rain >= 1 ? `, ${fmt.water(rain)} rain` : ''}${low ? ' (fewer than 3 forecast centres)' : ''}`}>
             <div className="h-12 w-full flex items-end justify-center">
               <div
-                style={{ height: `${Math.max(snow >= 0.5 ? 6 : 0, (snow / max) * 100)}%`, background: `var(--snow-${snowClass(snow) + 1})` }}
+                style={{
+                  height: `${Math.min(100, Math.max(snow >= 0.5 ? 6 : 0, (snow / WEEK_SCALE_CM) * 100))}%`,
+                  background: low ? 'transparent' : `var(--snow-${step})`,
+                  border: low ? `1.5px solid var(--snow-${step})` : undefined,
+                }}
                 className="w-3/5 rounded-t"
               />
             </div>
             <div className={`text-[11px] tnum mt-0.5 ${snow >= 0.5 ? 'font-semibold text-ink' : 'text-ink-3'}`}>{snow >= 0.5 ? fmt.snow(snow).replace(/ (cm|in)$/, '') : '–'}</div>
-            <div className="text-[10px] text-ink-3">{weekday(d.date)}</div>
+            <div className="text-[11px] text-ink-3">{d.date === today ? 'Today' : weekday(d.date)}</div>
             {rain >= 1 && (
               <div className="text-[10px] text-ink-2 flex items-center gap-0.5">
                 <span aria-hidden style={{ width: 6, height: 6, borderRadius: 3, background: 'var(--rain)' }} />
@@ -203,6 +226,80 @@ function WeekBars({ data, tz, fmt }: { data: BandForecast; tz: string; fmt: Fmt 
         );
       })}
     </div>
+  );
+}
+
+/**
+ * Where & when: every resort × the next 10 days on one shared scale, so the
+ * best day and the best resort can be read off one grid.
+ */
+function WhereWhen() {
+  const fmt = useFmt();
+  const narrow = useNarrow();
+  const nDays = narrow ? 6 : 10;
+  return (
+    <section className="card p-4 mt-4" aria-labelledby="ww-title">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <h2 id="ww-title" className="text-base font-semibold">Where & when</h2>
+        <span className="text-xs text-ink-2">Blended snowfall at each resort's upper elevation · ★ best day · outlined: fewer than 3 forecast centres · R/M: rain or mixed at the summit</span>
+      </div>
+      <div className="overflow-x-auto mt-2">
+        <table className="w-full text-[12px] border-separate" style={{ borderSpacing: 3 }}>
+          <tbody>
+            {RESORTS.map((r) => <WhereWhenRow key={r.id} resort={r} nDays={nDays} fmt={fmt} narrow={narrow} />)}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
+function WhereWhenRow({ resort, nDays, fmt, narrow }: { resort: Resort; nDays: number; fmt: Fmt; narrow: boolean }) {
+  const summit = resort.bands.find((b) => b.key === 'summit')!;
+  const fc = useBandForecast(resort, summit);
+  const today = todayIn(resort.tz);
+  const data = fc.data;
+  const days = data ? data.blendDaily.filter((d) => d.date >= today).slice(0, nDays) : [];
+  const centres = data ? dailyCentres(data.models, resort.tz) : new Map<string, number>();
+  const phases = data ? dailyPhase(data.blend, resort.tz, [summit.elevation]) : new Map();
+  const best = days.reduce((bi, d, i) => ((d.snowCm ?? 0) > (days[bi]?.snowCm ?? 0) ? i : bi), 0);
+  return (
+    <tr>
+      <th scope="row" className="text-left font-semibold pr-2 whitespace-nowrap">
+        <a href={href('resort', resort.id)} className="hover:underline">{resort.short}</a>
+      </th>
+      {!data ? (
+        <td colSpan={nDays} className="text-ink-3">{fc.error ? <>Failed · <button type="button" className="underline" onClick={fc.retry}>retry</button></> : 'Loading…'}</td>
+      ) : (
+        days.map((d, i) => {
+          const snow = d.snowCm ?? 0;
+          const step = snowClass(snow) + 1;
+          const low = (centres.get(d.date) ?? 0) < LOW_CENTRES;
+          const ph = phases.get(d.date)?.[0];
+          const filled = snow >= 0.5 && !low;
+          return (
+            <td
+              key={d.date}
+              title={`${resort.short} ${d.date}: ${fmt.snow(snow)}${ph && ph !== 'snow' && ph !== 'dry' ? ` (${ph} at summit)` : ''}${low ? ' — fewer than 3 forecast centres' : ''}`}
+              className="text-center rounded-md tnum align-middle"
+              style={{
+                minWidth: narrow ? 36 : 56, height: 40,
+                background: filled ? `var(--snow-${step})` : 'var(--surface-2)',
+                color: filled ? `var(--snow-ink-${step})` : 'var(--ink-2)',
+                border: low && snow >= 0.5 ? `1.5px solid var(--snow-${step})` : '1.5px solid transparent',
+              }}
+            >
+              <div className="text-[10px] opacity-80">{i === 0 ? 'Today' : narrow ? weekday(d.date).slice(0, 2) : dayLabel(d.date)}</div>
+              <div className="font-semibold">
+                {snow >= 0.5 ? fmt.snow(snow).replace(/ (cm|in)$/, '') : '–'}
+                {i === best && snow >= 2.5 && <span aria-label="best day"> ★</span>}
+                {(ph === 'rain' || ph === 'mixed') && <span className="text-[10px]" aria-label={ph}> {ph === 'rain' ? 'R' : 'M'}</span>}
+              </div>
+            </td>
+          );
+        })
+      )}
+    </tr>
   );
 }
 

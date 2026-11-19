@@ -1,19 +1,36 @@
+import { useEffect } from 'react';
 import { RESORTS, resortById } from './config/resorts';
 import { href, useRoute } from './hooks/useRoute';
 import { usePrefs } from './lib/prefs';
 import { Seg } from './components/ui';
 import { Dashboard } from './views/Dashboard';
-import { ResortView } from './views/ResortView';
+import { ResortView, TABS } from './views/ResortView';
 import { About } from './views/About';
 import { ErrorBoundary } from './components/ErrorBoundary';
 
 export function App() {
-  const route = useRoute();
+  const { parts, query } = useRoute();
   const { units, setUnits, theme, setTheme } = usePrefs();
-  const resort = route[0] === 'resort' ? resortById(route[1] ?? '') : undefined;
+  const resort = parts[0] === 'resort' ? resortById(parts[1] ?? '') : undefined;
+  const tab = resort ? (TABS.find((t) => t.id === parts[2]) ?? TABS[0]) : undefined;
+  const qs = query.toString();
+
+  useEffect(() => {
+    document.title = resort && tab ? `${resort.short} · ${tab.label} — PowderWatch` : parts[0] === 'about' ? 'Methods — PowderWatch' : 'PowderWatch';
+  }, [resort, tab, parts]);
+
+  const settings = (
+    <>
+      <Seg label="Units" value={units} onChange={setUnits} options={[{ value: 'imperial', label: 'in · ft' }, { value: 'metric', label: 'cm · m' }]} />
+      <Seg label="Theme" value={theme} onChange={setTheme} options={[{ value: 'system', label: 'Auto' }, { value: 'light', label: 'Light' }, { value: 'dark', label: 'Dark' }]} />
+    </>
+  );
 
   return (
     <div className="min-h-screen">
+      <a href="#main" className="skip-link" onClick={(e) => { e.preventDefault(); document.getElementById('main')?.focus(); }}>
+        Skip to content
+      </a>
       <header className="border-b border-line bg-surface">
         <div className="max-w-7xl mx-auto px-4 py-3 flex flex-wrap items-center gap-x-6 gap-y-2">
           <a href={href()} className="font-semibold text-lg tracking-tight flex items-center gap-2">
@@ -21,23 +38,30 @@ export function App() {
           </a>
           <nav className="flex gap-4 text-sm text-ink-2" aria-label="Resorts">
             {RESORTS.map((r) => (
-              <a key={r.id} href={href('resort', r.id)} className={resort?.id === r.id ? 'text-ink font-semibold' : 'hover:text-ink'}>
+              <a
+                key={r.id}
+                // Switching resorts keeps the current tab and view settings.
+                href={`${href('resort', r.id, tab?.id ?? 'storm')}${qs ? `?${qs}` : ''}`}
+                aria-current={resort?.id === r.id ? 'page' : undefined}
+                className={resort?.id === r.id ? 'text-ink font-semibold' : 'hover:text-ink'}
+              >
                 {r.short}
               </a>
             ))}
-            <a href={href('about')} className={route[0] === 'about' ? 'text-ink font-semibold' : 'hover:text-ink'}>
+            <a href={href('about')} aria-current={parts[0] === 'about' ? 'page' : undefined} className={parts[0] === 'about' ? 'text-ink font-semibold' : 'hover:text-ink'}>
               Methods
             </a>
           </nav>
-          <div className="ml-auto flex items-center gap-2">
-            <Seg label="Units" value={units} onChange={setUnits} options={[{ value: 'metric', label: 'cm · m' }, { value: 'imperial', label: 'in · ft' }]} />
-            <Seg label="Theme" value={theme} onChange={setTheme} options={[{ value: 'system', label: 'Auto' }, { value: 'light', label: 'Light' }, { value: 'dark', label: 'Dark' }]} />
-          </div>
+          <div className="ml-auto hidden sm:flex items-center gap-2">{settings}</div>
+          <details className="ml-auto sm:hidden relative">
+            <summary className="btn" aria-label="Settings">⚙</summary>
+            <div className="absolute right-0 mt-2 z-20 card p-3 flex flex-col gap-2 shadow-lg">{settings}</div>
+          </details>
         </div>
       </header>
-      <main className="max-w-7xl mx-auto px-4 pb-16">
-        <ErrorBoundary resetKey={route.join('/')}>
-          {route[0] === 'about' ? <About /> : resort ? <ResortView resort={resort} tab={route[2]} /> : <Dashboard />}
+      <main id="main" tabIndex={-1} className="max-w-7xl mx-auto px-4 pb-16 outline-none">
+        <ErrorBoundary resetKey={parts.join('/')}>
+          {parts[0] === 'about' ? <About /> : resort && tab ? <ResortView resort={resort} tab={tab.id} /> : <Dashboard />}
         </ErrorBoundary>
       </main>
       <footer className="max-w-7xl mx-auto px-4 pb-8 text-[11px] text-ink-3 leading-relaxed [&_a]:underline">

@@ -30,7 +30,7 @@ function applyTheme(t: ThemePref) {
 }
 
 export function PrefsProvider({ children }: { children: ReactNode }) {
-  const [units, setUnitsState] = useState<Units>(() => stored<Units>('pw-units', 'metric', ['metric', 'imperial']));
+  const [units, setUnitsState] = useState<Units>(() => stored<Units>('pw-units', 'imperial', ['metric', 'imperial']));
   const [theme, setThemeState] = useState<ThemePref>(() => {
     const t = stored<ThemePref>('pw-theme', 'system', ['system', 'light', 'dark']);
     applyTheme(t);

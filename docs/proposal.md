@@ -98,6 +98,13 @@ Candidates not yet added:
 - **Snowfall:** daily view or cumulative view (one line per model plus the blend).
   - Daily blend bars are shaded by amount on a six-step scale, with the day's total printed under each bar and one dot per model.
   - Rain at the band has its own aligned strip in a separate colour, because rain (mm) and snow (cm) cannot share an axis.
+- **Confidence shown in the marks, not just the tooltips:**
+  - Days with fewer than three forecast centres are outlined and shaded.
+  - A day is flagged *split* when at least 25% of ensemble members give ≤ 1 in and at least 25% give ≥ 6 in. The tooltip shows both camps and how many members back each.
+  - Totals of 7 days or more lead with the ensemble median and its 10–90% range, and warn when the blend leaves the range of the models that remain.
+- **Precipitation type and wind:** under the bars, a strip shows snow, mixed or rain at each elevation band, plus the day's peak gust, flagged at 40 mph and above.
+- **Run-to-run change:** a panel compares each global model's latest run with its run 12 hours earlier for the next 3 and 7 days. Run times show on screen, and runs initialised more than 18 h ago are flagged as stale.
+- **Phones:** 8 days by default with a 16-day toggle; model chips, links and settings collapse.
 - **Last 7 days, measured vs. modelled:** for every station, each column is the 24 h ending that morning.
   - Measured: new snow where the station reports it (SLF, MeteoSwiss); otherwise depth change plus water gained.
   - Modelled: the same physics applied to the models' short-range output at the station's location and elevation, which is the first step towards Phase 4 verification.
@@ -208,11 +215,13 @@ The same period's GFS runs read 74 → 20 → 14 → 0 → 25 cm. A storm vanish
 
 ### Feature 6 — Resort and Trip Dashboard *(implemented, except operating status)*
 
+**Where & when grid:** every resort against the next 10 days on one shared colour scale. The best day per resort is starred, low-confidence days are outlined, and rain or mixed at the summit is marked.
+
 **Resort cards:**
 
 - station depth, % of median and percentile, labelled as a station, never as "base";
 - blended snowfall at 3, 7, 10 and 14 days, each with the model range;
-- a 7-day mini forecast (bars shaded by amount, rain flagged) and the last 7 days measured at the station;
+- a 7-day mini forecast on a shared scale (bars shaded by amount, rain flagged), the last 7 days measured at the station, and changes since your last visit;
 - a model-agreement label;
 - the next day with at least 10 cm (4 in);
 - the 72-hour snow-level range.
@@ -431,5 +440,4 @@ Run locally with `npm run preview` (127.0.0.1:4173). The included GitHub Action 
 ## 12. Open Decisions
 
 - **Deployment visibility.** GitHub Pages on a free account is public, and so is the repository. The content is public weather data, and trips never leave the browser. Moving to Cloudflare Pages + Access is a workflow swap if privacy is needed later.
-- **Units default.** Currently metric, with an imperial toggle.
 - **Next resorts.** Stevens Pass and Snoqualmie need stations confirmed: SNOTEL near each pass, and NWAC is link-only.

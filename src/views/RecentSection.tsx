@@ -10,7 +10,7 @@ import { fetchSurface } from '../lib/openmeteo';
 import { alpha, slotColor, type ChartPalette } from '../lib/palette';
 import { useFmt, type Fmt } from '../lib/prefs';
 import { measuresNewSnow, recentReports, sumOrNull, type RecentDay } from '../lib/recent';
-import { addDays, dayLabel, localMidnightUnix, todayIn } from '../lib/time';
+import { addDays, dayLabel, daysBetween, localMidnightUnix, todayIn } from '../lib/time';
 
 const DAYS = 7;
 
@@ -37,7 +37,7 @@ function modelDaily(series: { time: number[]; snowCm: (number | null)[] }, dates
 export function RecentSection({ resort, band }: { resort: Resort; band: Band }) {
   const fmt = useFmt();
   const stations = stationsFor(resort.id);
-  const [stationId, setStationId] = useState(stations[0].id);
+  const [stationPick, setStationId] = useState<string | null>(null);
   const today = todayIn(resort.tz);
   const dates = useMemo(() => Array.from({ length: DAYS }, (_, i) => addDays(today, i - DAYS + 1)), [today]);
 
@@ -65,6 +65,10 @@ export function RecentSection({ resort, band }: { resort: Resort; band: Band }) 
   }, [files.data, atStations.data, stations, today, dates, resort.tz]);
 
   const bandModel = atBand.data ? modelDaily(atBand.data.blend, dates, resort.tz) : null;
+  // Default: first station (preference order) that reported in the last 3 days.
+  const silent = (f: StationFile | null) => !f?.lastDepthDate || daysBetween(f.lastDepthDate, today) > 3;
+  const defaultId = rows?.find((r) => !silent(r.file))?.st.id ?? stations[0].id;
+  const stationId = stationPick ?? defaultId;
   const sel = rows?.find((r) => r.st.id === stationId) ?? rows?.[0];
   const [showTable, setShowTable] = useState(false);
 
@@ -85,7 +89,7 @@ export function RecentSection({ resort, band }: { resort: Resort; band: Band }) 
           label="Station"
           value={sel?.st.id ?? stationId}
           onChange={setStationId}
-          options={stations.map((s) => ({ value: s.id, label: s.name.replace(/ \(.*\)$/, '') }))}
+          options={stations.map((s, i) => ({ value: s.id, label: `${s.name.replace(/ \(.*\)$/, '')}${files.data && silent(files.data[i]) ? ' (silent)' : ''}` }))}
         />
         </div>
       }

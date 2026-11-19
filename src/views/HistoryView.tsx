@@ -11,6 +11,9 @@ import { alpha, slotColor, type ChartPalette } from '../lib/palette';
 import { useFmt, type Fmt } from '../lib/prefs';
 import { isNum } from '../lib/stats';
 import { addDays, dayLabel, localMidnightUnix, nowUnix, runLabel, todayIn } from '../lib/time';
+import { useNarrow } from '../hooks/useNarrow';
+
+const shortDayFromUnix = (u: number) => new Date(u * 1000).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
 
 const RUNS_BACK = 14; // 7 days of 00Z/12Z runs
 
@@ -87,7 +90,8 @@ export function HistoryView({ resort }: { resort: Resort }) {
   }, [selected.join(','), band.key, from, to, meta.data != null]);
 
   const toggle = (id: string) => setSelected((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]));
-  const focus = selected[0];
+  const [focusPick, setFocus] = useState<string | null>(null);
+  const focus = focusPick && selected.includes(focusPick) ? focusPick : selected[0];
 
   return (
     <div className="mt-4">
@@ -124,7 +128,15 @@ export function HistoryView({ resort }: { resort: Resort }) {
       {runs.data && focus && runs.data.some((r) => r.modelId === focus) && (
         <Section
           title={`${MODELS[focus].label}: storm evolution run by run`}
-          subtitle="Cumulative snowfall through the window as forecast by each run. Lighter lines are older runs; the darkest line is the latest."
+          subtitle="Cumulative snowfall through the window as forecast by each run. Older runs fade; the latest two are labelled."
+          right={
+            <label className="text-xs text-ink-2 flex items-center gap-2">
+              Storm evolution for
+              <select className="field" value={focus} onChange={(e) => setFocus(e.target.value)}>
+                {selected.map((id) => <option key={id} value={id}>{MODELS[id].label}</option>)}
+              </select>
+            </label>
+          }
         >
           <EvolutionChart runs={runs.data.filter((r) => r.modelId === focus)} from={from} to={to} tz={resort.tz} fmt={fmt} />
         </Section>
@@ -139,13 +151,14 @@ export function HistoryView({ resort }: { resort: Resort }) {
 }
 
 function TrendChart({ runs, fmt }: { runs: RunResult[]; fmt: Fmt }) {
+  const narrow = useNarrow();
   const option = useCallback(
     (p: ChartPalette): EChartsCoreOption => {
       const base = baseOption(p) as Record<string, unknown>;
       const ids = Array.from(new Set(runs.map((r) => r.modelId)));
       return {
         ...base,
-        xAxis: { ...(base.xAxis as object), type: 'time', axisLabel: { color: p.ink3, fontSize: 11, formatter: (v: number) => runLabel(v / 1000) } },
+        xAxis: { ...(base.xAxis as object), type: 'time', minInterval: 86_400_000, splitNumber: narrow ? 3 : 7, axisLabel: { color: p.ink3, fontSize: 11, formatter: (v: number) => (narrow ? shortDayFromUnix(v / 1000) : runLabel(v / 1000)) } },
         yAxis: { ...(base.yAxis as object), type: 'value', name: fmt.snowUnit, min: 0, nameTextStyle: { color: p.ink3 } },
         tooltip: {
           ...(base.tooltip as object),
@@ -163,7 +176,7 @@ function TrendChart({ runs, fmt }: { runs: RunResult[]; fmt: Fmt }) {
         grid: { left: 52, right: 80, top: 16, bottom: 28 },
       };
     },
-    [runs, fmt],
+    [runs, fmt, narrow],
   );
   return <Chart option={option} height={300} ariaLabel="Window snowfall by model run" />;
 }
@@ -194,13 +207,15 @@ function Summary({ runs, fmt }: { runs: RunResult[]; fmt: Fmt }) {
 }
 
 function EvolutionChart({ runs, from, to, tz, fmt }: { runs: RunResult[]; from: number; to: number; tz: string; fmt: Fmt }) {
+  const narrow = useNarrow();
   const option = useCallback(
     (p: ChartPalette): EChartsCoreOption => {
       const base = baseOption(p) as Record<string, unknown>;
-      const ramp = p.emphasisRamp; // older runs recede, latest run has most contrast
+      const ramp = p.emphasisRamp.slice(1); // older runs recede (floor above the faintest step), latest run has most contrast
       return {
         ...base,
-        xAxis: { ...(base.xAxis as object), type: 'time', min: from * 1000, max: to * 1000 },
+        grid: { left: 52, right: narrow ? 16 : 130, top: 16, bottom: 28 },
+        xAxis: { ...(base.xAxis as object), type: 'time', min: from * 1000, max: to * 1000, splitNumber: narrow ? 3 : 6 },
         yAxis: { ...(base.yAxis as object), type: 'value', name: fmt.snowUnit, nameTextStyle: { color: p.ink3 } },
         tooltip: {
           ...(base.tooltip as object),
@@ -218,15 +233,18 @@ function EvolutionChart({ runs, from, to, tz, fmt }: { runs: RunResult[]; from: 
             pts.push([t * 1000, fmt.snowVal(acc)]);
           });
           const latest = i === runs.length - 1;
+          const previous = i === runs.length - 2;
+          const endTotal = pts.length ? pts[pts.length - 1][1] : null;
           return {
             type: 'line', name: `run ${runLabel(r.run)}`, showSymbol: false,
-            lineStyle: { width: latest ? 3 : 1.5, color }, itemStyle: { color }, z: latest ? 5 : 2, data: pts,
+            lineStyle: { width: latest ? 3 : previous ? 2 : 1.5, color }, itemStyle: { color }, z: latest ? 5 : previous ? 4 : 2, data: pts,
+            endLabel: (latest || previous) && !narrow ? { show: true, color: p.ink1, fontSize: 11, fontWeight: latest ? 600 : 400, formatter: `${runLabel(r.run)} · ${endTotal == null ? '—' : `${endTotal.toFixed(fmt.units === 'imperial' ? 1 : 0)} ${fmt.snowUnit}`}` } : undefined,
             areaStyle: latest ? { color: alpha(color, 0.08) } : undefined,
           };
         }),
       };
     },
-    [runs, from, to, tz, fmt],
+    [runs, from, to, tz, fmt, narrow],
   );
   return <Chart option={option} height={260} ariaLabel="Storm evolution by run" />;
 }

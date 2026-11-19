@@ -3,8 +3,13 @@ import { RESORTS } from '../config/resorts';
 import { STATIONS } from '../config/stations';
 import { PHASE_TW_HALF_WIDTH, PHASE_TW_MID, SNOW_LEVEL_OFFSET_M, snowToLiquidRatio } from '../lib/physics';
 import { DEFAULT_PARAMS } from '../lib/snowpack';
+import { SPLIT_HIGH_CM, SPLIT_LOW_CM, SPLIT_MIN_SHARE } from '../lib/ensemble';
+import { PHASE_BAND_M } from '../lib/forecast';
+import { useFmt } from '../lib/prefs';
+import { LOW_CENTRES } from './storm/Daily';
 
 export function About() {
+  const fmt = useFmt();
   const lo = PHASE_TW_MID - PHASE_TW_HALF_WIDTH;
   const hi = PHASE_TW_MID + PHASE_TW_HALF_WIDTH;
   return (
@@ -42,6 +47,19 @@ export function About() {
         <li>The blend is not assumed to be more accurate than any single model. Skill weighting waits on verification data.</li>
       </ul>
 
+      <h2>Confidence rules on the charts</h2>
+      <ul className="list-disc pl-5">
+        <li>Days with fewer than {LOW_CENTRES} forecast centres contributing are drawn outlined and shaded: the blend there averages only one or two centres.</li>
+        <li>
+          A day is <i>split</i> when at least {Math.round(SPLIT_MIN_SHARE * 100)}% of ensemble members (centre-weighted) give {fmt.snow(SPLIT_LOW_CM)} or less
+          and at least {Math.round(SPLIT_MIN_SHARE * 100)}% give {fmt.snow(SPLIT_HIGH_CM)} or more. On split days the average is not a likely outcome; hover the day for both camps.
+        </li>
+        <li>Totals of 7 days or more lead with the ensemble median and its 10–90% range. The multi-model blend is still shown, with a warning when it falls outside the range of the models that cover the whole window (late in the window fewer centres remain, so the blend can drift).</li>
+        <li>Precipitation type per elevation: snow when the band is more than {fmt.elev(PHASE_BAND_M)} above the blended snow level during wet hours, rain when more than {fmt.elev(PHASE_BAND_M)} below, mixed otherwise.</li>
+        <li>Gusts are flagged at 40 mph (64 km/h) and above, where lift holds become likely. Dashboard: "next big day" is the first day with at least 4 in (10 cm); model agreement compares the spread of 7-day totals with the blend (under 0.6 broad agreement, over 1.2 strong disagreement); "rain risk up high" means the 72-hour snow level comes within 100 m of the summit band.</li>
+        <li>"Since your last visit" compares with what this browser showed at least 30 minutes earlier. "Change since the previous run" compares each global model's latest run with its run 12 hours earlier.</li>
+      </ul>
+
       <h2>Snowpack projection</h2>
       <ul className="list-disc pl-5">
         <li>Starts from the station's latest reading (and its SWE if the station measures it; otherwise a seasonal bulk density).</li>
@@ -65,7 +83,7 @@ export function About() {
         {RESORTS.map((r) => (
           <li key={r.id}>
             <b className="text-ink">{r.name}:</b> {r.models.map((m) => MODELS[m].label).join(', ')}. Stations:{' '}
-            {STATIONS.filter((s) => s.resortId === r.id).map((s) => `${s.name} (${s.source}, ${s.elevation} m)`).join('; ')}.
+            {STATIONS.filter((s) => s.resortId === r.id).map((s) => `${s.name} (${s.source}, ${fmt.elev(s.elevation)})`).join('; ')}.
           </li>
         ))}
       </ul>

@@ -14,7 +14,8 @@ import { alpha, slotColor, type ChartPalette } from '../lib/palette';
 import { useFmt, type Fmt } from '../lib/prefs';
 import { runSnowpack, type ForcingHour } from '../lib/snowpack';
 import { familyWeights, isNum, weightedQuantile, type Series } from '../lib/stats';
-import { addDays, daysBetween, localMidnightUnix, shortDate, todayIn } from '../lib/time';
+import { addDays, ago, daysBetween, localMidnightUnix, shortDate, todayIn } from '../lib/time';
+import { useHashParam } from '../hooks/useRoute';
 
 const SCENARIO_MODELS = ['ecmwf_ifs025', 'gfs_global', 'gem_global', 'icon_global', 'ecmwf_aifs025_single'];
 const PROJECTION_DAYS = 15;
@@ -55,6 +56,7 @@ export function SnowpackView({ resort }: { resort: Resort }) {
   const v: Variable = variable === 'sweMm' && !st.swe ? 'depthCm' : variable;
   const [showPrev, setShowPrev] = useState(true);
   const [showScenarios, setShowScenarios] = useState(false);
+  const [range, setRange] = useHashParam<'sofar' | 'full'>('range', 'sofar', ['sofar', 'full']);
   const file = useAsync(() => loadStation(st.id), [st.id]);
   const today = todayIn(resort.tz);
   const clim = useMemo(() => (file.data ? buildClimatology(file.data, v, today) : null), [file.data, v, today]);
@@ -129,12 +131,12 @@ export function SnowpackView({ resort }: { resort: Resort }) {
             ))}
           </select>
         </label>
-        <Seg
-          label="Variable"
-          value={v}
-          onChange={setVariable}
-          options={[{ value: 'depthCm', label: 'Snow depth' }, ...(st.swe ? [{ value: 'sweMm' as Variable, label: 'Water equivalent' }] : [])]}
-        />
+        {st.swe ? (
+          <Seg label="Variable" value={v} onChange={setVariable} options={[{ value: 'depthCm', label: 'Snow depth' }, { value: 'sweMm', label: 'Water equivalent' }]} />
+        ) : (
+          <span className="text-sm text-ink-2">Snow depth</span>
+        )}
+        <Seg label="Time range" value={range} onChange={setRange} options={[{ value: 'sofar', label: 'Season so far' }, { value: 'full', label: 'Full season' }]} />
         <label className="text-xs text-ink-2 flex items-center gap-1.5">
           <input type="checkbox" checked={showPrev} onChange={(e) => setShowPrev(e.target.checked)} /> Last season
         </label>
@@ -164,7 +166,7 @@ export function SnowpackView({ resort }: { resort: Resort }) {
               </>
             }
           >
-            <SeasonChart clim={clim} season={season} kToday={kToday} projection={projection} showPrev={showPrev} showScenarios={showScenarios} fmt={fmt} v={v} />
+            <SeasonChart clim={clim} season={season} kToday={kToday} projection={projection} showPrev={showPrev} showScenarios={showScenarios} fmt={fmt} v={v} zoom={range === 'sofar'} />
           </Section>
         </>
       )}
@@ -180,7 +182,7 @@ function StationInfo({ st, resort, clim, file, fmt }: { st: StationDef; resort: 
       <b className="text-ink">{st.name}</b> ({st.source} {st.sourceId}) · {fmt.elev(st.elevation)} · {d.toFixed(0)} km from {resort.short} mid-mountain.{' '}
       {st.dailyNote}{' '}
       {clim && clim.seasons.length > 0 && <>Climatology uses {clim.seasons.length} seasons with ≥80% Nov–May coverage ({clim.seasons[0]}–{clim.seasons.at(-1)! + 1}). </>}
-      {file && <>Data fetched {new Date(file.updated).toLocaleString()}. </>}
+      {file && <>Station data updated {ago(Math.floor(Date.parse(file.updated) / 1000))}. </>}
       <a className="underline" href={st.url} target="_blank" rel="noreferrer">{st.attribution} ↗</a>
       {st.caveat && <Notice tone="warn">{st.caveat}</Notice>}
       <div className="mt-1 text-ink-3">This is a measurement site, not the resort's reported base depth. Wind, aspect and grooming make on-piste depths differ.</div>
@@ -207,7 +209,9 @@ function Stats({ clim, last, today, projection, fmt, v, stale }: {
         value={median != null && median >= 1 ? `${Math.round((100 * last.value) / median)}%` : '—'}
         sub={median != null ? `median ${show(median)}` : 'no climatology'}
       />
-      <Tile label="Percentile" value={pct == null ? '—' : `${Math.round(pct)}th`} sub={`among ${clim.seasons.length} seasons`} />
+      {clim.seasons.length < 10
+        ? <Tile label="Percentile" value="—" sub={`short record (${clim.seasons.length} seasons) — not enough for percentiles`} />
+        : <Tile label="Percentile" value={pct == null ? '—' : `${Math.round(pct)}th`} sub={`among ${clim.seasons.length} seasons`} />}
       <Tile
         label="Typical for"
         value={!(last.value > 0) || k == null ? '—' : typical != null ? shortDate(seasonDate(2001, typical)) : 'above peak'}
@@ -222,8 +226,8 @@ function Stats({ clim, last, today, projection, fmt, v, stale }: {
   );
 }
 
-function SeasonChart({ clim, season, kToday, projection, showPrev, showScenarios, fmt, v }: {
-  clim: Climatology; season: number; kToday: number | null; projection: Projection | null; showPrev: boolean; showScenarios: boolean; fmt: Fmt; v: Variable;
+function SeasonChart({ clim, season, kToday, projection, showPrev, showScenarios, fmt, v, zoom }: {
+  clim: Climatology; season: number; kToday: number | null; projection: Projection | null; showPrev: boolean; showScenarios: boolean; fmt: Fmt; v: Variable; zoom: boolean;
 }) {
   const conv = useCallback((x: number | null | undefined) => (v === 'depthCm' ? fmt.snowVal(x) : fmt.waterVal(x)), [fmt, v]);
   const unit = v === 'depthCm' ? fmt.snowUnit : fmt.waterUnit;
@@ -241,20 +245,32 @@ function SeasonChart({ clim, season, kToday, projection, showPrev, showScenarios
       const prev = clim.bySeason.get(season - 1) ?? [];
       const curPts = ks.filter((k) => kToday == null || k <= kToday).map((k) => [k, conv(cur[k])]);
       const proj = projection;
-      const projPts = (arr: (number | null)[]) => (proj ? proj.ks.map((k, i) => [k, conv(arr[i])]).filter(([k]) => (k as number) >= 0) : []);
-      const projDiff = proj ? proj.ks.map((k, i) => [k, proj.p10[i] == null || proj.p90[i] == null ? null : conv(proj.p90[i]! - proj.p10[i]!)]).filter(([k]) => (k as number) >= 0) : [];
+      // Anchor the projection on the reading it starts from, so it connects to this season's line.
+      const initK = proj ? seasonIndex(proj.initDate)?.k ?? null : null;
+      const initV = initK != null ? cur[initK] : null;
+      const anchor = (pts: (number | null)[][], v0: number | null) => (initK != null && v0 != null ? [[initK, v0], ...pts] : pts);
+      const projPts = (arr: (number | null)[]) => anchor(proj ? proj.ks.map((k, i) => [k, conv(arr[i])]).filter(([k]) => (k as number) >= 0) : [], conv(initV));
+      const projDiff = anchor(proj ? proj.ks.map((k, i) => [k, proj.p10[i] == null || proj.p90[i] == null ? null : conv(proj.p90[i]! - proj.p10[i]!)]).filter(([k]) => (k as number) >= 0) : [], 0);
+      const thin = clim.seasons.length < 10;
+      // "Season so far": Oct 1 → 30 days past today, y fitted to what is shown.
+      const xMax = zoom && kToday != null ? Math.min(SEASON_DAYS - 1, kToday + 30) : SEASON_DAYS - 1;
+      const inView = (arr: (number | null)[]) => arr.slice(0, xMax + 1).filter((x): x is number => x != null);
+      const yMax = zoom
+        ? Math.max(5, ...inView(thin ? clim.p50 : clim.p90).map((x) => conv(x)!), ...inView(cur).map((x) => conv(x)!), ...(proj ? proj.p90.filter((x): x is number => x != null).map((x) => conv(x)!) : [])) * 1.2
+        : undefined;
+      const ticks = MONTH_STARTS.filter((m) => m <= xMax);
       const f = (x: number | null | undefined) => (x == null ? '—' : `${x.toFixed(fmt.units === 'imperial' ? 1 : 0)} ${unit}`);
       const lowConfFrom = kToday != null ? kToday + 10 : null;
       return {
         ...base,
         grid: { left: 56, right: 20, top: 20, bottom: 28 },
         xAxis: {
-          ...(base.xAxis as object), type: 'value', min: 0, max: SEASON_DAYS - 1,
-          axisLabel: { color: p.ink3, fontSize: 11, customValues: MONTH_STARTS, formatter: (x: number) => MONTH_NAMES[MONTH_STARTS.indexOf(x)] ?? '' },
-          axisTick: { show: true, customValues: MONTH_STARTS, lineStyle: { color: p.axis } },
+          ...(base.xAxis as object), type: 'value', min: 0, max: xMax,
+          axisLabel: { color: p.ink3, fontSize: 11, customValues: ticks, formatter: (x: number) => MONTH_NAMES[MONTH_STARTS.indexOf(x)] ?? '' },
+          axisTick: { show: true, customValues: ticks, lineStyle: { color: p.axis } },
           splitLine: { show: false },
         },
-        yAxis: { ...(base.yAxis as object), type: 'value', min: 0, name: unit, nameTextStyle: { color: p.ink3 } },
+        yAxis: { ...(base.yAxis as object), type: 'value', min: 0, max: yMax == null ? undefined : Math.ceil(yMax / 5) * 5, name: unit, nameTextStyle: { color: p.ink3 } },
         tooltip: {
           ...(base.tooltip as object),
           formatter: (params: { axisValue: number }[]) => {
@@ -274,12 +290,11 @@ function SeasonChart({ clim, season, kToday, projection, showPrev, showScenarios
         },
         series: [
           ...bandPair('range', clim.min, clim.max, alpha(p.ink3, 0.1)),
-          ...bandPair('p10-90', clim.p10, clim.p90, alpha(p.ink3, 0.16)),
-          ...bandPair('p25-75', clim.p25, clim.p75, alpha(p.ink3, 0.22)),
-          { type: 'line', name: 'Median', symbol: 'none', lineStyle: { width: 2, color: p.ink2 }, data: ser(clim.p50), silent: true },
+          ...(thin ? [] : [...bandPair('p10-90', clim.p10, clim.p90, alpha(p.ink3, 0.16)), ...bandPair('p25-75', clim.p25, clim.p75, alpha(p.ink3, 0.22))]),
+          { type: 'line', name: 'Median', symbol: 'none', lineStyle: { width: 1.5, color: p.ink3, type: 'dashed' }, data: ser(clim.p50), silent: true },
           ...(showPrev
             ? [{
-                type: 'line', name: 'Last season', symbol: 'none', lineStyle: { width: 2, color: p.lastSeason }, data: ser(prev), silent: true,
+                type: 'line', name: 'Last season', symbol: 'none', lineStyle: { width: 1.5, color: p.lastSeason, opacity: 0.7 }, data: ser(prev), silent: true,
               }]
             : []),
           ...(proj
@@ -288,7 +303,13 @@ function SeasonChart({ clim, season, kToday, projection, showPrev, showScenarios
                 { type: 'line', name: 'Projection 10–90%', stack: 'proj', symbol: 'none', lineStyle: { opacity: 0 }, areaStyle: { color: p.proj.outer }, data: projDiff, silent: true },
                 {
                   type: 'line', name: 'Projection', symbol: 'none', lineStyle: { width: 2.5, color: p.proj.line }, data: projPts(proj.p50), z: 6, silent: true,
-                  endLabel: { show: true, color: p.ink1, fontSize: 11, fontWeight: 600, formatter: (x: { value: [number, number | null] }) => (x.value[1] == null ? '' : `${Math.round(x.value[1])} ${unit} in 15 d`) },
+                  endLabel: { show: true, color: p.ink1, fontSize: 11, fontWeight: 600, formatter: (x: { value: [number, number | null] }) => {
+                    const last = proj.ks.length - 1;
+                    if (x.value[1] == null || last < 0) return '';
+                    const lo = conv(proj.p10[last]);
+                    const hi = conv(proj.p90[last]);
+                    return `≈${Math.round(x.value[1])} ${unit} by ${shortDate(seasonDate(season, proj.ks[last]))}${lo != null && hi != null ? ` (${Math.round(lo)}–${Math.round(hi)})` : ''}`;
+                  } },
                 },
                 ...(showScenarios
                   ? proj.scenarios.map((s) => ({
@@ -316,18 +337,18 @@ function SeasonChart({ clim, season, kToday, projection, showPrev, showScenarios
         ],
       };
     },
-    [clim, season, kToday, projection, showPrev, showScenarios, conv, fmt, unit],
+    [clim, season, kToday, projection, showPrev, showScenarios, conv, fmt, unit, zoom],
   );
   return (
     <>
-      <SeasonLegend showPrev={showPrev} showProjection={!!projection} showScenarios={showScenarios} season={season} />
+      <SeasonLegend showPrev={showPrev} showProjection={!!projection} showScenarios={showScenarios} season={season} thin={clim.seasons.length < 10} />
       <Chart option={option} height={380} ariaLabel="Seasonal snowpack versus history with projection" />
     </>
   );
 }
 
 /** Legend that mirrors each mark: line keys for lines, filled keys for bands. */
-function SeasonLegend({ showPrev, showProjection, showScenarios, season }: { showPrev: boolean; showProjection: boolean; showScenarios: boolean; season: number }) {
+function SeasonLegend({ showPrev, showProjection, showScenarios, season, thin }: { showPrev: boolean; showProjection: boolean; showScenarios: boolean; season: number; thin: boolean }) {
   const line = (color: string, width: number) => <span aria-hidden style={{ width: 18, height: width, background: color, display: 'inline-block', borderRadius: 1 }} />;
   const band = (opacity: number) => <span aria-hidden style={{ width: 14, height: 10, background: 'var(--ink-3)', opacity, display: 'inline-block', borderRadius: 2 }} />;
   const item = (key: ReactNode, label: string) => (
@@ -338,9 +359,8 @@ function SeasonLegend({ showPrev, showProjection, showScenarios, season }: { sho
       {item(line('var(--ink-1)', 3), `This season (${season}–${String(season + 1).slice(2)})`)}
       {showProjection && item(<span aria-hidden className="flex items-center">{line('var(--proj-line)', 3)}<span style={{ width: 10, height: 10, marginLeft: 2, background: 'var(--proj-band-outer)', borderRadius: 2 }} /></span>, 'Projection: median and 10–90% of members')}
       {showPrev && item(line('var(--last-season)', 2), `Last season (${season - 1}–${String(season).slice(2)})`)}
-      {item(line('var(--ink-2)', 2), 'Median')}
-      {item(band(0.5), 'Middle half of seasons (25–75%)')}
-      {item(band(0.3), '10–90%')}
+      {item(<span aria-hidden style={{ width: 18, height: 0, borderTop: '2px dashed var(--ink-3)', display: 'inline-block' }} />, 'Median')}
+      {thin ? <span className="text-ink-3">Short record: percentile bands hidden</span> : <>{item(band(0.5), 'Middle half of seasons (25–75%)')}{item(band(0.3), '10–90%')}</>}
       {item(band(0.15), 'Record low–high')}
       {showScenarios && <span className="text-ink-3">Thin coloured lines: single-model scenarios (labelled)</span>}
     </div>

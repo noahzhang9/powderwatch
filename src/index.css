@@ -8,7 +8,7 @@
   --surface-2: #f3f2ee;
   --ink-1: #0b0b0b;
   --ink-2: #52514e;
-  --ink-3: #898781;
+  --ink-3: #6f6d68;
   --grid: #e1e0d9;
   --axis: #c3c2b7;
   --border: rgba(11, 11, 11, 0.1);
@@ -20,7 +20,9 @@
   /* Projection / plume: line must contrast with the surface; bands recede. */
   --proj-line: #184f95; --proj-band-outer: rgba(109, 167, 236, 0.35); --proj-band-inner: rgba(42, 120, 214, 0.40);
   /* Snow-amount ramp (one hue, ordinal: more snow = more ink) and rain. */
-  --snow-1: #86b6ef; --snow-2: #5598e7; --snow-3: #2a78d6; --snow-4: #1c5cab; --snow-5: #104281; --snow-6: #0d366b;
+  --snow-1: #86b6ef; --snow-2: #3987e5; --snow-3: #256abf; --snow-4: #184f95; --snow-5: #0d366b;
+  --snow-ink-1: #0b0b0b; --snow-ink-2: #0b0b0b; --snow-ink-3: #ffffff; --snow-ink-4: #ffffff; --snow-ink-5: #ffffff;
+  --mixed: #9a978f;
   --rain: #23887d;
   --last-season: #6250d6;
 }
@@ -41,7 +43,8 @@
     --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500;
     --s5: #d55181; --s6: #0ca30c; --s7: #9085e9; --s8: #e66767;
     --proj-line: #9ec5f4; --proj-band-outer: rgba(42, 120, 214, 0.30); --proj-band-inner: rgba(85, 152, 231, 0.40);
-  --snow-1: #184f95; --snow-2: #256abf; --snow-3: #3987e5; --snow-4: #6da7ec; --snow-5: #9ec5f4; --snow-6: #cde2fb;
+  --snow-1: #184f95; --snow-2: #2a78d6; --snow-3: #5598e7; --snow-4: #86b6ef; --snow-5: #cde2fb;
+  --snow-ink-1: #ffffff; --snow-ink-2: #0b0b0b; --snow-ink-3: #0b0b0b; --snow-ink-4: #0b0b0b; --snow-ink-5: #0b0b0b;
   --rain: #3fb3a6;
   --last-season: #9085e9;
   }
@@ -61,7 +64,8 @@
   --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500;
   --s5: #d55181; --s6: #0ca30c; --s7: #9085e9; --s8: #e66767;
   --proj-line: #9ec5f4; --proj-band-outer: rgba(42, 120, 214, 0.30); --proj-band-inner: rgba(85, 152, 231, 0.40);
-  --snow-1: #184f95; --snow-2: #256abf; --snow-3: #3987e5; --snow-4: #6da7ec; --snow-5: #9ec5f4; --snow-6: #cde2fb;
+  --snow-1: #184f95; --snow-2: #2a78d6; --snow-3: #5598e7; --snow-4: #86b6ef; --snow-5: #cde2fb;
+  --snow-ink-1: #ffffff; --snow-ink-2: #0b0b0b; --snow-ink-3: #0b0b0b; --snow-ink-4: #0b0b0b; --snow-ink-5: #0b0b0b;
   --rain: #3fb3a6;
   --last-season: #9085e9;
 }
@@ -98,8 +102,18 @@ html, body {
   border: 1px solid var(--border); background: var(--surface-1);
   font-size: 12px; color: var(--ink-2); cursor: pointer; user-select: none;
 }
-.chip[aria-pressed="true"] { color: var(--ink-1); background: var(--surface-2); }
-.chip[aria-pressed="false"] { opacity: 0.55; }
+.chip[aria-pressed="true"] { color: var(--ink-1); background: var(--surface-2); border-color: var(--axis); }
+.chip[aria-pressed="false"] { color: var(--ink-2); }
+.btn {
+  display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 8px;
+  border: 1px solid var(--axis); background: var(--surface-1); font-size: 12px; color: var(--ink-1); cursor: pointer;
+}
+.btn:hover { background: var(--surface-2); }
+.btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.skip-link { position: absolute; left: -999px; top: 8px; }
+.skip-link:focus { left: 8px; z-index: 50; background: var(--surface-1); padding: 6px 10px; border-radius: 8px; border: 1px solid var(--axis); }
+details > summary { cursor: pointer; list-style: none; }
+details > summary::-webkit-details-marker { display: none; }
 .chip:focus-visible, .seg button:focus-visible, a:focus-visible, select:focus-visible, input:focus-visible {
   outline: 2px solid var(--accent); outline-offset: 2px;
 }

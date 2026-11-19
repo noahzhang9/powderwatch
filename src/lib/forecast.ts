@@ -196,3 +196,54 @@ export function lastValidTime(time: number[], s: Series): number | null {
   for (let i = s.length - 1; i >= 0; i--) if (isNum(s[i])) return time[i];
   return null;
 }
+
+// ---------------------------------------------------------------- confidence & phase
+
+/** Number of forecast centres with ≥ 20 h of data on each local day. */
+export function dailyCentres(models: DerivedHourly[], tz: string): Map<string, number> {
+  const per = new Map<string, Set<string>>();
+  for (const m of models) {
+    for (const r of toDaily(m, tz)) {
+      if (r.hours < 20) continue;
+      if (!per.has(r.date)) per.set(r.date, new Set());
+      per.get(r.date)!.add(m.model.family);
+    }
+  }
+  return new Map([...per].map(([d, s]) => [d, s.size]));
+}
+
+export type Phase = 'snow' | 'mixed' | 'rain' | 'dry';
+
+/** Transition half-width around the snow level, m: within it precipitation is mixed. */
+export const PHASE_BAND_M = 150;
+
+/**
+ * Precipitation type at each elevation for each local day, from the blended
+ * snow level during hours with precipitation (≥ 0.3 mm/h). Dry when the day's
+ * blended precipitation is under 1 mm.
+ */
+export function dailyPhase(b: BlendHourly, tz: string, elevations: number[]): Map<string, Phase[]> {
+  const days = new Map<string, number[]>();
+  b.time.forEach((t, i) => {
+    const { date } = localParts(t - 3600, tz);
+    if (!days.has(date)) days.set(date, []);
+    days.get(date)!.push(i);
+  });
+  const out = new Map<string, Phase[]>();
+  for (const [date, idx] of days) {
+    const total = idx.reduce((s, i) => s + (b.precip[i] ?? 0), 0);
+    const wet = idx.filter((i) => (b.precip[i] ?? 0) >= 0.3 && isNum(b.snowLevel[i]));
+    out.set(
+      date,
+      elevations.map((z) => {
+        if (total < 1 || !wet.length) return 'dry';
+        const kinds = new Set(wet.map((i) => {
+          const sl = b.snowLevel[i]!;
+          return z >= sl + PHASE_BAND_M ? 'snow' : z <= sl - PHASE_BAND_M ? 'rain' : 'mixed';
+        }));
+        return kinds.size === 1 ? ([...kinds][0] as Phase) : 'mixed';
+      }),
+    );
+  }
+  return out;
+}

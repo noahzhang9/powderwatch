@@ -4,7 +4,7 @@ import { StormView } from './StormView';
 import { HistoryView } from './HistoryView';
 import { SnowpackView } from './SnowpackView';
 
-const TABS = [
+export const TABS = [
   { id: 'storm', label: 'Storm tracker' },
   { id: 'history', label: 'Run history' },
   { id: 'snowpack', label: 'Snowpack' },
@@ -12,6 +12,7 @@ const TABS = [
 
 export function ResortView({ resort, tab }: { resort: Resort; tab?: string }) {
   const active = TABS.find((t) => t.id === tab)?.id ?? 'storm';
+  const qs = window.location.hash.split('?')[1];
   return (
     <div>
       <div className="flex flex-wrap items-end gap-x-6 gap-y-2 pt-5">
@@ -23,7 +24,7 @@ export function ResortView({ resort, tab }: { resort: Resort; tab?: string }) {
           {TABS.map((t) => (
             <a
               key={t.id}
-              href={href('resort', resort.id, t.id)}
+              href={`${href('resort', resort.id, t.id)}${qs ? `?${qs}` : ''}`}
               aria-current={active === t.id ? 'page' : undefined}
               className={`px-3 py-1.5 rounded-lg text-sm ${active === t.id ? 'bg-surface-2 text-ink font-semibold' : 'text-ink-2 hover:text-ink'}`}
             >
@@ -32,13 +33,16 @@ export function ResortView({ resort, tab }: { resort: Resort; tab?: string }) {
           ))}
         </nav>
       </div>
-      <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-ink-2 mt-2">
-        {resort.links.map((l) => (
-          <a key={l.url} href={l.url} target="_blank" rel="noreferrer" className="underline decoration-[var(--axis)] hover:text-ink">
-            {l.label} ↗
-          </a>
-        ))}
-      </div>
+      <details className="mt-2 sm:open:block" open={window.matchMedia('(min-width: 641px)').matches}>
+        <summary className="text-xs text-ink-2 sm:hidden">Links ▾</summary>
+        <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-ink-2 mt-1">
+          {resort.links.map((l) => (
+            <a key={l.url} href={l.url} target="_blank" rel="noreferrer" className="underline decoration-[var(--axis)] hover:text-ink">
+              {l.label} ↗
+            </a>
+          ))}
+        </div>
+      </details>
       {active === 'storm' && <StormView resort={resort} />}
       {active === 'history' && <HistoryView resort={resort} />}
       {active === 'snowpack' && <SnowpackView resort={resort} />}

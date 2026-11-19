@@ -159,3 +159,80 @@ export function probabilityFzlAbove(time: number[], members: MemberSeries[], fro
   const w = familyWeights(members.map((m) => m.def.family), hit.map(isNum));
   return exceedance(hit, w, 1);
 }
+
+// ---------------------------------------------------------------- per-day distributions
+
+/** "Little or nothing" and "a real storm" thresholds for split-day detection, cm. */
+export const SPLIT_LOW_CM = 2.5;
+export const SPLIT_HIGH_CM = 15;
+/** Both camps need at least this weighted share of members for a day to count as split. */
+export const SPLIT_MIN_SHARE = 0.25;
+
+export interface DayDist {
+  p10: number | null;
+  p50: number | null;
+  p90: number | null;
+  /** Weighted share of members at or below SPLIT_LOW_CM / at or above SPLIT_HIGH_CM. */
+  pLow: number;
+  pHigh: number;
+  /** Median of the members in each camp. */
+  lowMedian: number | null;
+  highMedian: number | null;
+  split: boolean;
+  centres: number;
+  members: number;
+}
+
+/**
+ * Daily snowfall distribution across all ensemble members, by local date
+ * (same day convention as forecast.toDaily: the value at hh:00 belongs to the
+ * hour before it). A member counts for a day only if it covers ≥ 20 h of it.
+ */
+export function dailyDistributions(time: number[], members: MemberSeries[], dayOf: (unix: number) => string): Map<string, DayDist> {
+  const days = new Map<string, number[]>();
+  time.forEach((t, i) => {
+    const d = dayOf(t - 3600);
+    if (!days.has(d)) days.set(d, []);
+    days.get(d)!.push(i);
+  });
+  const fams = members.map((m) => m.def.family);
+  const out = new Map<string, DayDist>();
+  for (const [date, idx] of days) {
+    const vals = members.map((m) => {
+      let s = 0;
+      let n = 0;
+      for (const i of idx) {
+        const v = m.snowCm[i];
+        if (isNum(v)) {
+          s += v;
+          n++;
+        }
+      }
+      return n >= 20 ? s : null;
+    });
+    const present = vals.map(isNum);
+    if (!present.some(Boolean)) continue;
+    const w = familyWeights(fams, present);
+    const total = w.reduce((a, b) => a + b, 0);
+    const share = (pred: (v: number) => boolean) => vals.reduce<number>((s, v, i) => s + (isNum(v) && pred(v) ? w[i] : 0), 0) / total;
+    const camp = (pred: (v: number) => boolean) => {
+      const cv = vals.map((v) => (isNum(v) && pred(v) ? v : null));
+      return weightedQuantile(cv, w, 0.5);
+    };
+    const pLow = share((v) => v <= SPLIT_LOW_CM);
+    const pHigh = share((v) => v >= SPLIT_HIGH_CM);
+    out.set(date, {
+      p10: weightedQuantile(vals, w, 0.1),
+      p50: weightedQuantile(vals, w, 0.5),
+      p90: weightedQuantile(vals, w, 0.9),
+      pLow,
+      pHigh,
+      lowMedian: camp((v) => v <= SPLIT_LOW_CM),
+      highMedian: camp((v) => v >= SPLIT_HIGH_CM),
+      split: pLow >= SPLIT_MIN_SHARE && pHigh >= SPLIT_MIN_SHARE,
+      centres: new Set(fams.filter((_, i) => present[i])).size,
+      members: present.filter(Boolean).length,
+    });
+  }
+  return out;
+}
