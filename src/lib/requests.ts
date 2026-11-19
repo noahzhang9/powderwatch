@@ -62,3 +62,6 @@ export function defaultStationIndex(files: (StationFile | null)[], today: string
   const i = files.findIndex((f) => f?.lastDepthDate && daysBetween(f.lastDepthDate, today) <= DEFAULT_STATION_MAX_AGE_DAYS);
   return Math.max(0, i);
 }
+
+/** The snowpack projection doesn't use freezing level, so its ensemble requests leave it out (cheaper). */
+export const SNOWPACK_WITH_FREEZING_LEVEL = false;

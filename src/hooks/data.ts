@@ -70,8 +70,8 @@ export interface EnsembleSet {
   failed: string[];
 }
 
-export async function loadEnsembles(pt: Point, tz: string, pastDays?: number): Promise<EnsembleSet> {
-  const results = await Promise.allSettled(ENSEMBLES.map((e) => fetchEnsemble(pt, e.id, tz, { pastDays })));
+export async function loadEnsembles(pt: Point, tz: string, pastDays?: number, withFreezingLevel = true): Promise<EnsembleSet> {
+  const results = await Promise.allSettled(ENSEMBLES.map((e) => fetchEnsemble(pt, e.id, tz, { pastDays, withFreezingLevel })));
   const sets: MemberSeries[][] = [];
   const failed: string[] = [];
   results.forEach((r, i) => {
@@ -81,10 +81,10 @@ export async function loadEnsembles(pt: Point, tz: string, pastDays?: number): P
   return { ...alignMembers(sets), failed };
 }
 
-export function useEnsembles(pt: Point | null, tz: string, enabled = true, pastDays?: number) {
+export function useEnsembles(pt: Point | null, tz: string, enabled = true, pastDays?: number, withFreezingLevel = true) {
   return useAsync(
-    () => loadEnsembles(pt!, tz, pastDays),
-    [pt?.lat, pt?.lon, pt?.elevation, tz, pastDays],
+    () => loadEnsembles(pt!, tz, pastDays, withFreezingLevel),
+    [pt?.lat, pt?.lon, pt?.elevation, tz, pastDays, withFreezingLevel],
     enabled && pt != null,
   );
 }

@@ -11,7 +11,7 @@ import {
 import { SNAPSHOT_MAX_AGE_S, clearCache } from '../src/lib/cache';
 import { loadStation, type StationFile } from '../src/lib/obs';
 import { parseRunMeta, type RunMeta, type SurfaceHourly } from '../src/lib/openmeteo';
-import { hasData, midBand, pointOf, projectionStart, runChangeModels } from '../src/lib/requests';
+import { hasData, midBand, pointOf, projectionStart, runChangeModels, SNOWPACK_WITH_FREEZING_LEVEL } from '../src/lib/requests';
 import { todayIn } from '../src/lib/time';
 import { PRIORITY, estimateCost, metaIdsFor, planSnapshot, selectWithinBudget, type PlanGroup } from './snapshot-plan';
 
@@ -74,7 +74,7 @@ async function browserRequests(atS: number) {
     for (const st of stationsFor(r.id)) {
       const { stale, pastDays } = projectionStart(await loadStation(st.id), 'depthCm', todayIn(r.tz));
       if (stale) continue;
-      await loadEnsembles(pointOf(st), r.tz, pastDays);
+      await loadEnsembles(pointOf(st), r.tz, pastDays, SNOWPACK_WITH_FREEZING_LEVEL);
       await loadScenarios(pointOf(st), r.tz, pastDays);
     }
   }

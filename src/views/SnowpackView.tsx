@@ -15,7 +15,7 @@ import { runSnowpack, type ForcingHour } from '../lib/snowpack';
 import { familyWeights, isNum, weightedQuantile, type Series } from '../lib/stats';
 import { addDays, ago, daysBetween, localMidnightUnix, shortDate, todayIn } from '../lib/time';
 import { useHashParam } from '../hooks/useRoute';
-import { defaultStationIndex, pointOf, projectionStart } from '../lib/requests';
+import { defaultStationIndex, pointOf, projectionStart, SNOWPACK_WITH_FREEZING_LEVEL } from '../lib/requests';
 
 const PROJECTION_DAYS = 15;
 const MONTH_STARTS = [0, 31, 61, 92, 123, 151, 182, 212, 243];
@@ -60,7 +60,7 @@ export function SnowpackView({ resort }: { resort: Resort }) {
   const { last, stale, pastDays } = projectionStart(file.data ?? null, v, today);
   const point = pointOf(st);
 
-  const ens = useEnsembles(point, resort.tz, !stale, pastDays);
+  const ens = useEnsembles(point, resort.tz, !stale, pastDays, SNOWPACK_WITH_FREEZING_LEVEL);
   const det = useAsync(() => loadScenarios(point, resort.tz, pastDays), [st.id, pastDays], !stale);
 
   const projection = useMemo<Projection | null>(() => {

@@ -110,10 +110,15 @@ export function profileUrl(pt: Omit<Point, 'elevation'>, modelIds: string[], tz:
 }
 
 /** All members of one ensemble at one point. */
-export function ensembleUrl(pt: Point, modelId: string, tz: string, opts: { pastDays?: number } = {}): string {
+/**
+ * `withFreezingLevel: false` drops freezing_level_height (about a quarter of
+ * the request's weighted cost); the snowpack projection doesn't use it.
+ */
+export function ensembleUrl(pt: Point, modelId: string, tz: string, opts: { pastDays?: number; withFreezingLevel?: boolean } = {}): string {
+  const vars = opts.withFreezingLevel === false ? ENSEMBLE_VARS.filter((v) => v !== 'freezing_level_height') : ENSEMBLE_VARS;
   return `${ENSEMBLE}?${qs({
     latitude: pt.lat, longitude: pt.lon, elevation: pt.elevation,
-    hourly: ENSEMBLE_VARS.join(','),
+    hourly: vars.join(','),
     models: modelId, forecast_days: 16, past_days: opts.pastDays, timezone: tz, timeformat: 'unixtime',
   })}`;
 }
@@ -194,7 +199,7 @@ export interface EnsembleHourly {
 }
 
 export async function fetchEnsemble(
-  pt: Point, modelId: string, tz: string, opts: { pastDays?: number } = {},
+  pt: Point, modelId: string, tz: string, opts: { pastDays?: number; withFreezingLevel?: boolean } = {},
 ): Promise<EnsembleHourly> {
   const d = await cachedJson<OmResponse>(ensembleUrl(pt, modelId, tz, opts), FORECAST_TTL, 'low');
   const h = d.hourly;
