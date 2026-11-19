@@ -1,0 +1,181 @@
+# Refresh station observations every 6 h and publish the static site to GitHub Pages.
+# One-time setup: repo Settings → Pages → Source: "GitHub Actions";
+# Settings → Actions → General → Workflow permissions: "Read repository contents".
+#
+# Jobs are split so third-party npm code never runs where a write-capable token exists:
+#   refresh (read-only, npm scripts disabled) → commit (write, no npm) → build (read-only) → deploy (Pages only)
+name: refresh-and-deploy
+
+on:
+  schedule:
+    - cron: '20 */6 * * *' # 00:20, 06:20, 12:20, 18:20 UTC (off the top of the hour, when runs get delayed)
+    - cron: '40 0 * * 0'   # Sundays: full-history refresh
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+permissions: {} # granted per job below
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    if: github.event_name != 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --ignore-scripts --registry=https://registry.npmjs.org
+      - name: Choose refresh mode (full history weekly or on manual runs, recent window otherwise)
+        id: mode
+        env:
+          EVENT: ${{ github.event_name }}
+          SCHEDULE: ${{ github.event.schedule }}
+        run: |
+          full=0
+          if [ "$EVENT" = "workflow_dispatch" ] || [ "$SCHEDULE" = "40 0 * * 0" ]; then full=1; fi
+          echo "FULL_REFRESH=$full" >> "$GITHUB_ENV"
+          echo "m=$(date -u +%Y-%m)" >> "$GITHUB_OUTPUT"
+      # BC archives (~49 MB) change once a year and are read only by full refreshes:
+      # restore this month's copy, and save only from a full refresh that had to download it.
+      - id: bc-restore
+        if: env.FULL_REFRESH == '1'
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .cache
+          key: bc-archives-${{ steps.mode.outputs.m }}
+      - name: Fetch observations
+        env:
+          PW_CONTACT: ${{ github.server_url }}/${{ github.repository }}
+          ARCHIVE_MAX_AGE_DAYS: '100000'
+        run: npm run obs || echo "::warning::some stations failed; previous files kept"
+      - if: env.FULL_REFRESH == '1' && steps.bc-restore.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .cache
+          key: bc-archives-${{ steps.mode.outputs.m }}
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: obs
+          path: public/data/obs/*.json
+          retention-days: 1
+          if-no-files-found: error
+
+  commit:
+    needs: refresh
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write # push refreshed data; this job runs no npm code
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: obs
+          path: incoming
+      - name: Validate incoming files and re-serialise them (never copy raw bytes)
+        run: |
+          python3 - <<'PY'
+          import json, os, re, sys
+          DATE = re.compile(r'\d{4}-\d{2}-\d{2}')
+          STAMP = re.compile(r'\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z')
+          BOUNDS = {'depthCm': 1500, 'sweMm': 5000, 'newSnowCm': 300}
+          allowed = {'id', 'updated', 'start', 'depthCm', 'sweMm', 'newSnowCm', 'lastDepthDate', 'lastSweDate'}
+          existing = set(os.listdir('public/data/obs'))
+          def fail(msg):
+              sys.exit(f'rejected: {msg}')
+          def reject_constant(c):
+              fail(f'non-finite number {c}')
+          for name in sorted(os.listdir('incoming')):
+              path = os.path.join('incoming', name)
+              if not re.fullmatch(r'[A-Za-z0-9-]+\.json', name) or name not in existing:
+                  fail(f'unexpected file {name}')
+              if os.path.getsize(path) > 2_000_000:
+                  fail(f'{name} is larger than 2 MB')
+              with open(path) as fh:
+                  f = json.load(fh, parse_constant=reject_constant)
+              if not isinstance(f, dict) or set(f) - allowed or f.get('id') + '.json' != name:
+                  fail(f'unexpected structure in {name}')
+              if not (isinstance(f.get('start'), str) and DATE.fullmatch(f['start'])):
+                  fail(f'bad start date in {name}')
+              if not (isinstance(f.get('updated'), str) and STAMP.fullmatch(f['updated'])):
+                  fail(f'bad updated timestamp in {name}')
+              for k in ('lastDepthDate', 'lastSweDate'):
+                  if f.get(k) is not None and not (isinstance(f[k], str) and DATE.fullmatch(f[k])):
+                      fail(f'bad {k} in {name}')
+              lengths = set()
+              for k, hi in BOUNDS.items():
+                  v = f.get(k)
+                  if v is None and k != 'depthCm':
+                      continue
+                  if not isinstance(v, list):
+                      fail(f'bad series {k} in {name}')
+                  for x in v:
+                      if x is not None and (isinstance(x, bool) or not isinstance(x, (int, float)) or not 0 <= x <= hi):
+                          fail(f'implausible value {x!r} in {k} of {name}')
+                  lengths.add(len(v))
+              if len(lengths) != 1:
+                  fail(f'series lengths differ in {name}')
+              with open(os.path.join('public/data/obs', name), 'w') as out:
+                  json.dump(f, out, allow_nan=False, separators=(',', ':'))
+          PY
+      - name: Commit if any reading changed
+        run: |
+          if [ -n "$(git status --porcelain public/data/obs)" ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add public/data/obs
+            git commit -m "chore(data): Refresh station observations"
+            git pull --rebase origin main
+            git push origin HEAD:main
+          fi
+
+  build:
+    needs: commit
+    # Runs after a refresh, or on its own for pushes (refresh/commit are skipped then).
+    if: ${{ !cancelled() && needs.commit.result != 'failure' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main # include the data commit made earlier in this run
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --registry=https://registry.npmjs.org
+      - run: npm test
+      - run: npm run build
+      - uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
+      - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    if: ${{ !cancelled() && needs.build.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
