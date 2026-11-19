@@ -21,9 +21,7 @@ export interface DerivedHourly {
   fzl: Series;
   fzlSource: 'model' | 'computed' | 'none';
   snowLevel: Series;
-  wind: Series;
   gust: Series;
-  windDir: Series;
 }
 
 export interface DailyRow {
@@ -88,7 +86,7 @@ export function deriveModel(raw: SurfaceHourly, profiles?: Profiles): DerivedHou
 
   return {
     model, time: raw.time, tC: raw.tC, rh: raw.rh, precip: raw.precip, snowCm, rainMm,
-    omSnowCm: raw.omSnowCm, fzl, fzlSource, snowLevel: sl, wind: raw.wind, gust: raw.gust, windDir: raw.windDir,
+    omSnowCm: raw.omSnowCm, fzl, fzlSource, snowLevel: sl, gust: raw.gust,
   };
 }
 

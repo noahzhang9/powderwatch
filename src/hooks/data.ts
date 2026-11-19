@@ -11,7 +11,7 @@ import {
   fetchEnsemble, fetchProfiles, fetchRunMeta, fetchSingleRun, fetchSurface, type Point, type RunMeta, type SurfaceHourly,
 } from '../lib/openmeteo';
 import type { ProfileLevel } from '../lib/physics';
-import { RECENT_SURFACE, SCENARIO_MODELS, hasData, metaIdOf, midBand, pointOf, previousRun } from '../lib/requests';
+import { RECENT_SURFACE, SCENARIO_MODELS, hasData, metaIdOf, midBand, pointOf, previousRun, scenarioSurface } from '../lib/requests';
 import { useMemo } from 'react';
 import { useAsync } from './useAsync';
 
@@ -132,4 +132,4 @@ export async function loadRecentModels(pt: Point, resort: Resort): Promise<Recen
 
 /** Single-model snowpack scenarios at a station's point. */
 export const loadScenarios = (pt: Point, tz: string, pastDays: number) =>
-  fetchSurface(pt, SCENARIO_MODELS, tz, { pastDays, priority: 'low' });
+  fetchSurface(pt, SCENARIO_MODELS, tz, { ...scenarioSurface(pastDays), priority: 'low' });

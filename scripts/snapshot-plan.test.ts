@@ -123,6 +123,12 @@ describe('snapshot plan', () => {
     expect(new Set(runs)).toEqual(new Set([new Date((INIT_S - 12 * 3600) * 1000).toISOString().slice(0, 16)]));
     expect(runs.length).toBe(RESORTS.length * HISTORY_MODELS.length);
   });
+
+  it('asks the last-7-days and snowpack-scenario requests for the physics inputs only', () => {
+    const urls = allUrls(planSnapshot({ nowS: NOW_S, obs: obsFiles() })).filter((u) => u.includes('/v1/forecast') && u.includes('past_days'));
+    expect(urls.length).toBeGreaterThan(0);
+    for (const u of urls) expect(new URL(u).searchParams.get('hourly')).toBe('temperature_2m,relative_humidity_2m,precipitation');
+  });
 });
 
 describe('estimateCost (Open-Meteo weighted calls)', () => {

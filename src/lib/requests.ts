@@ -15,8 +15,13 @@ export const SCENARIO_MODELS = ['ecmwf_ifs025', 'gfs_global', 'gem_global', 'ico
 
 /** Length of the "last N days, measured vs. modelled" panel. */
 export const RECENT_DAYS = 7;
-/** That panel's surface request: one extra past day so the first 24 h window is complete. */
-export const RECENT_SURFACE: SurfaceOpts = { pastDays: RECENT_DAYS + 1, forecastDays: 1 };
+/**
+ * That panel's surface request: one extra past day so the first 24 h window is complete.
+ * It shows modelled snowfall only, so it asks for the physics inputs alone.
+ */
+export const RECENT_SURFACE: SurfaceOpts = { pastDays: RECENT_DAYS + 1, forecastDays: 1, forcingOnly: true };
+/** The snowpack scenarios' surface request: the model runs only on precipitation, temperature and humidity. */
+export const scenarioSurface = (pastDays: number): SurfaceOpts => ({ pastDays, forcingOnly: true });
 
 /** The run-to-run panel compares each model's latest run with the run this much earlier. */
 export const RUN_CHANGE_OFFSET_S = 12 * 3600;

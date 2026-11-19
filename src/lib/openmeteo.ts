@@ -38,15 +38,16 @@ export interface SurfaceHourly {
   /** Open-Meteo's own snowfall (fixed 7:1 ratio), cm — kept for comparison only. */
   omSnowCm: Series;
   fzl: Series;
-  wind: Series;
   gust: Series;
-  windDir: Series;
 }
 
-const SURFACE_VARS = [
-  'temperature_2m', 'relative_humidity_2m', 'precipitation', 'snowfall',
-  'freezing_level_height', 'wind_speed_10m', 'wind_gusts_10m', 'wind_direction_10m',
-];
+/** Everything the forecast views show. */
+const SURFACE_VARS = ['temperature_2m', 'relative_humidity_2m', 'precipitation', 'snowfall', 'freezing_level_height', 'wind_gusts_10m'];
+/**
+ * Only what the snow physics needs (rain/snow split): enough for the
+ * last-7-days panel and the snowpack scenarios, at under half the weighted cost.
+ */
+const FORCING_VARS = ['temperature_2m', 'relative_humidity_2m', 'precipitation'];
 const SINGLE_RUN_VARS = ['temperature_2m', 'relative_humidity_2m', 'precipitation', 'freezing_level_height'];
 const ENSEMBLE_VARS = ['precipitation', 'temperature_2m', 'relative_humidity_2m', 'freezing_level_height'];
 
@@ -78,13 +79,15 @@ function pick(h: OmResponse['hourly'], variable: string, modelId: string, multi:
 export interface SurfaceOpts {
   pastDays?: number;
   forecastDays?: number;
+  /** Request only FORCING_VARS; the other series parse as empty. */
+  forcingOnly?: boolean;
 }
 
 /** Deterministic surface forecast for several models at one point. */
 export function surfaceUrl(pt: Point, modelIds: string[], tz: string, opts: SurfaceOpts = {}): string {
   return `${FORECAST}?${qs({
     latitude: pt.lat, longitude: pt.lon, elevation: pt.elevation,
-    hourly: SURFACE_VARS.join(','), models: modelIds.join(','),
+    hourly: (opts.forcingOnly ? FORCING_VARS : SURFACE_VARS).join(','), models: modelIds.join(','),
     forecast_days: opts.forecastDays ?? 16, past_days: opts.pastDays,
     timezone: tz, timeformat: 'unixtime',
   })}`;
@@ -139,9 +142,7 @@ export function parseSurface(d: OmResponse, modelIds: string[]): SurfaceHourly[]
     precip: pick(d.hourly, 'precipitation', m, multi),
     omSnowCm: pick(d.hourly, 'snowfall', m, multi),
     fzl: pick(d.hourly, 'freezing_level_height', m, multi),
-    wind: pick(d.hourly, 'wind_speed_10m', m, multi),
     gust: pick(d.hourly, 'wind_gusts_10m', m, multi),
-    windDir: pick(d.hourly, 'wind_direction_10m', m, multi),
   }));
 }
 

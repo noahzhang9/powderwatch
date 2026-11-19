@@ -14,7 +14,7 @@ import type { StationFile } from '../src/lib/obs';
 import { ENSEMBLE, ensembleUrl, profileUrl, runMetaUrl, singleRunUrl, surfaceUrl, type RunMeta, type SurfaceHourly } from '../src/lib/openmeteo';
 import {
   RECENT_DAYS, RECENT_SURFACE, SCENARIO_MODELS, defaultStationIndex, hasData, metaIdOf, midBand, pointOf, previousRun,
-  projectionStart, runChangeModels, SNOWPACK_WITH_FREEZING_LEVEL,
+  projectionStart, runChangeModels, scenarioSurface, SNOWPACK_WITH_FREEZING_LEVEL,
 } from '../src/lib/requests';
 import { localDate } from '../src/lib/time';
 
@@ -104,7 +104,7 @@ export function planSnapshot(input: PlanInput): PlanGroup[] {
         const priority = (i === def ? PRIORITY.snowpackDefault : PRIORITY.snowpackOther) + k;
         add(priority, `${r.id}: snowpack ${st.id}${k ? ` (from ${today})` : ''}`, [
           ...ENSEMBLES.map((e) => ensembleUrl(pt, e.id, r.tz, { pastDays, withFreezingLevel: SNOWPACK_WITH_FREEZING_LEVEL })),
-          surfaceUrl(pt, SCENARIO_MODELS, r.tz, { pastDays }),
+          surfaceUrl(pt, SCENARIO_MODELS, r.tz, scenarioSurface(pastDays)),
         ]);
       });
     });
