@@ -226,15 +226,23 @@ function SeasonChart({ clim, season, kToday, projection, showPrev, showScenarios
     (p: ChartPalette): EChartsCoreOption => {
       const base = baseOption(p) as Record<string, unknown>;
       const ks = Array.from({ length: SEASON_DAYS }, (_, k) => k);
-      const ser = (arr: (number | null)[]) => ks.map((k) => [k, conv(arr[k])]);
-      const bandPair = (name: string, lo: (number | null)[], hi: (number | null)[], color: string) => [
+      // Reference series stop at the visible right edge so their direct labels sit inside the plot.
+      const kEnd = zoom && kToday != null ? Math.min(SEASON_DAYS - 1, kToday + 30) : SEASON_DAYS - 1;
+      const vis = ks.filter((k) => k <= kEnd);
+      const ser = (arr: (number | null)[]) => vis.map((k) => [k, conv(arr[k])]);
+      const edgeLabel = (text: string, color: string, weight = 400) => ({
+        show: true, formatter: text, color, fontSize: 10, fontWeight: weight, distance: 6,
+      });
+      const bandPair = (name: string, lo: (number | null)[], hi: (number | null)[], color: string, label?: string) => [
         { type: 'line', name: `${name}-lo`, stack: name, symbol: 'none', lineStyle: { opacity: 0 }, data: ser(lo), silent: true },
         { type: 'line', name, stack: name, symbol: 'none', lineStyle: { opacity: 0 }, areaStyle: { color }, silent: true,
-          data: ks.map((k) => [k, lo[k] == null || hi[k] == null ? null : conv(hi[k]! - lo[k]!)]) },
+          endLabel: label ? edgeLabel(label, p.ink3) : undefined, labelLayout: { moveOverlap: 'shiftY' },
+          data: vis.map((k) => [k, lo[k] == null || hi[k] == null ? null : conv(hi[k]! - lo[k]!)]) },
       ];
       const cur = clim.bySeason.get(season) ?? [];
       const prev = clim.bySeason.get(season - 1) ?? [];
       const curPts = ks.filter((k) => kToday == null || k <= kToday).map((k) => [k, conv(cur[k])]);
+      const lastCur = [...curPts].reverse().find((pt) => pt[1] != null) ?? null;
       const proj = projection;
       // Anchor the projection on the reading it starts from, so it connects to this season's line.
       const initK = proj ? seasonIndex(proj.initDate)?.k ?? null : null;
@@ -254,7 +262,7 @@ function SeasonChart({ clim, season, kToday, projection, showPrev, showScenarios
       const lowConfFrom = kToday != null ? kToday + 10 : null;
       return {
         ...base,
-        grid: { left: 56, right: 20, top: 20, bottom: 28 },
+        grid: { left: 56, right: 104, top: 20, bottom: 28 },
         xAxis: {
           ...(base.xAxis as object), type: 'value', min: 0, max: xMax,
           axisLabel: { color: p.ink3, fontSize: 11, customValues: ticks, formatter: (x: number) => MONTH_NAMES[MONTH_STARTS.indexOf(x)] ?? '' },
@@ -270,23 +278,27 @@ function SeasonChart({ clim, season, kToday, projection, showPrev, showScenarios
             // Keys mirror the marks: same colours and names as the legend above the chart.
             const rows = [
               cur[k] != null && (kToday == null || k <= kToday) ? tipRow(p.ink1, 'This season', f(conv(cur[k])), p) : '',
-              pj >= 0 && proj!.p50[pj] != null ? tipRow(p.proj.line, 'Projection (median)', f(conv(proj!.p50[pj])), p) + tipRow(p.proj.outer, 'Projection 10–90%', `${f(conv(proj!.p10[pj]))} – ${f(conv(proj!.p90[pj]))}`, p) : '',
+              pj >= 0 && proj!.p50[pj] != null ? tipRow(p.proj.line, 'Projection (median)', f(conv(proj!.p50[pj])), p) + tipRow(p.proj.outer, 'Projection 10–90%', `${f(conv(proj!.p10[pj]))} – ${f(conv(proj!.p90[pj]))}`, p, 'band') : '',
               showPrev && prev[k] != null ? tipRow(p.lastSeason, 'Last season', f(conv(prev[k])), p) : '',
-              tipRow(p.ink3, 'Median', f(conv(clim.p50[k])), p),
-              thin ? '' : tipRow(alpha(p.ink3, 0.5), 'Middle half (25–75%)', `${f(conv(clim.p25[k]))} – ${f(conv(clim.p75[k]))}`, p),
-              thin ? '' : tipRow(alpha(p.ink3, 0.3), '10–90%', `${f(conv(clim.p10[k]))} – ${f(conv(clim.p90[k]))}`, p),
-              tipRow(alpha(p.ink3, 0.15), 'Record low–high', `${f(conv(clim.min[k]))} – ${f(conv(clim.max[k]))}`, p),
+              tipRow(p.ink3, 'Median', f(conv(clim.p50[k])), p, 'dashed'),
+              thin ? '' : tipRow(alpha(p.ink3, 0.55), 'Middle half (25–75%)', `${f(conv(clim.p25[k]))} – ${f(conv(clim.p75[k]))}`, p, 'band'),
+              thin ? '' : tipRow(alpha(p.ink3, 0.35), '10–90%', `${f(conv(clim.p10[k]))} – ${f(conv(clim.p90[k]))}`, p, 'band'),
+              tipRow(alpha(p.ink3, 0.18), 'Record low–high', `${f(conv(clim.min[k]))} – ${f(conv(clim.max[k]))}`, p, 'band'),
             ];
             return tipHeader(shortDate(seasonDate(season, k)), p) + rows.join('');
           },
         },
         series: [
-          ...bandPair('range', clim.min, clim.max, alpha(p.ink3, 0.1)),
-          ...(thin ? [] : [...bandPair('p10-90', clim.p10, clim.p90, alpha(p.ink3, 0.16)), ...bandPair('p25-75', clim.p25, clim.p75, alpha(p.ink3, 0.22))]),
-          { type: 'line', name: 'Median', symbol: 'none', lineStyle: { width: 1.5, color: p.ink3, type: 'dashed' }, data: ser(clim.p50), silent: true },
+          ...bandPair('range', clim.min, clim.max, alpha(p.ink3, 0.1), 'record high'),
+          ...(thin ? [] : [...bandPair('p10-90', clim.p10, clim.p90, alpha(p.ink3, 0.16), '90%'), ...bandPair('p25-75', clim.p25, clim.p75, alpha(p.ink3, 0.22), '75%')]),
+          {
+            type: 'line', name: 'Median', symbol: 'none', lineStyle: { width: 1.5, color: p.ink2, type: 'dashed' }, data: ser(clim.p50), silent: true,
+            endLabel: edgeLabel('Median', p.ink2, 600), labelLayout: { moveOverlap: 'shiftY' },
+          },
           ...(showPrev
             ? [{
-                type: 'line', name: 'Last season', symbol: 'none', lineStyle: { width: 1.5, color: p.lastSeason, opacity: 0.7 }, data: ser(prev), silent: true,
+                type: 'line', name: 'Last season', symbol: 'none', lineStyle: { width: 2, color: p.lastSeason }, data: ser(prev), silent: true,
+                endLabel: edgeLabel('Last season', p.lastSeason, 600), labelLayout: { moveOverlap: 'shiftY' },
               }]
             : []),
           ...(proj
@@ -316,6 +328,11 @@ function SeasonChart({ clim, season, kToday, projection, showPrev, showScenarios
           {
             type: 'line', name: 'This season', symbol: 'none', z: 7, lineStyle: { width: 3, color: p.ink1 }, data: curPts,
             endLabel: proj ? undefined : { show: true, color: p.ink1, fontSize: 11, fontWeight: 600, formatter: 'This season' },
+            markPoint: proj && lastCur ? {
+              silent: true, symbol: 'circle', symbolSize: 7, itemStyle: { color: p.ink1, borderColor: p.surface, borderWidth: 1.5 },
+              label: { show: true, position: 'top', distance: 8, color: p.ink1, fontSize: 11, fontWeight: 600, formatter: 'This season' },
+              data: [{ coord: lastCur }],
+            } : undefined,
             markLine: kToday != null ? {
               silent: true, symbol: 'none', lineStyle: { color: p.ink3, type: 'solid', width: 1 },
               label: { formatter: 'today', color: p.ink2, fontSize: 11 }, data: [{ xAxis: kToday }],

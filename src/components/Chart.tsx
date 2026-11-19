@@ -1,13 +1,13 @@
 import { useEffect, useRef } from 'react';
 import * as echarts from 'echarts/core';
 import { BarChart, LineChart, ScatterChart } from 'echarts/charts';
-import { GridComponent, MarkAreaComponent, MarkLineComponent, TooltipComponent, AxisPointerComponent } from 'echarts/components';
+import { GridComponent, MarkAreaComponent, MarkLineComponent, MarkPointComponent, TooltipComponent, AxisPointerComponent } from 'echarts/components';
 import { SVGRenderer } from 'echarts/renderers';
 import type { EChartsCoreOption } from 'echarts/core';
 import { usePrefs } from '../lib/prefs';
 import { readPalette, type ChartPalette } from '../lib/palette';
 
-echarts.use([BarChart, LineChart, ScatterChart, GridComponent, TooltipComponent, AxisPointerComponent, MarkLineComponent, MarkAreaComponent, SVGRenderer]);
+echarts.use([BarChart, LineChart, ScatterChart, GridComponent, TooltipComponent, AxisPointerComponent, MarkLineComponent, MarkAreaComponent, MarkPointComponent, SVGRenderer]);
 
 export type { EChartsCoreOption };
 
@@ -70,10 +70,18 @@ export function baseOption(p: ChartPalette): EChartsCoreOption {
 }
 
 /** Tooltip row: short line key in series colour, value strong, label secondary. */
-export function tipRow(color: string, label: string, value: string, p: ChartPalette): string {
+export type TipKey = 'line' | 'dashed' | 'band';
+
+export function tipRow(color: string, label: string, value: string, p: ChartPalette, key: TipKey = 'line'): string {
   const esc = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+  const swatch =
+    key === 'band'
+      ? `<span style="display:inline-block;width:12px;height:10px;border-radius:2px;background:${color}"></span>`
+      : key === 'dashed'
+        ? `<span style="display:inline-block;width:12px;height:0;border-top:2px dashed ${color}"></span>`
+        : `<span style="display:inline-block;width:12px;height:2px;background:${color}"></span>`;
   return `<div style="display:flex;align-items:center;gap:8px;line-height:18px">` +
-    `<span style="display:inline-block;width:12px;height:2px;background:${color}"></span>` +
+    swatch +
     `<b style="color:${p.ink1};min-width:56px;text-align:right" class="tnum">${esc(value)}</b>` +
     `<span style="color:${p.ink2}">${esc(label)}</span></div>`;
 }
