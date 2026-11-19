@@ -24,7 +24,7 @@ export function Dashboard() {
     <div className="pt-5">
       <h1 className="text-2xl font-semibold tracking-tight">Conditions & outlook</h1>
       <p className="text-sm text-ink-2 mt-1 max-w-3xl">
-        Forecasts are a family-balanced blend of up to eight models at each resort's upper elevation, with their spread shown.
+        Forecasts are a family-balanced blend of up to eight models at each resort's mid-mountain elevation, with their spread shown.
         Snow depths come from nearby measurement stations and are compared against those stations' own history.
       </p>
       <WhereWhen />
@@ -35,6 +35,9 @@ export function Dashboard() {
     </div>
   );
 }
+
+/** The dashboard, grid and trips use mid-mountain, the most representative elevation for a ski day. */
+const midBand = (r: Resort) => r.bands.find((b) => b.key === 'mid')!;
 
 function usePrimaryStation(resort: Resort) {
   return useAsync(async () => {
@@ -87,7 +90,7 @@ function agreement(total: number | null, min: number | null, max: number | null)
 function ResortCard({ resort }: { resort: Resort }) {
   const fmt = useFmt();
   const summit = resort.bands.find((b) => b.key === 'summit')!;
-  const fc = useBandForecast(resort, summit);
+  const fc = useBandForecast(resort, midBand(resort));
   const obs = usePrimaryStation(resort);
   const now = nowUnix();
   const data = fc.data;
@@ -110,7 +113,7 @@ function ResortCard({ resort }: { resort: Resort }) {
   const w7 = data ? windowStats(data, now, 168) : null;
   const o = obs.data;
   const thin = o?.clim && o.clim.seasons.length < 10;
-  const gap = o ? summit.elevation - o.station.elevation : 0;
+  const gap = o ? midBand(resort).elevation - o.station.elevation : 0;
   return (
     <div className="card p-4">
       <div className="flex items-baseline justify-between gap-2">
@@ -130,7 +133,7 @@ function ResortCard({ resort }: { resort: Resort }) {
               </span>
             </div>
             <div className="text-xs text-ink-2">
-              {o.station.name}, {fmt.elev(o.station.elevation)}{gap > 300 && <> · {fmt.elev(gap)} below the summit band</>} · {shortDate(o.last.date)}
+              {o.station.name}, {fmt.elev(o.station.elevation)}{Math.abs(gap) > 300 && <> · {fmt.elev(Math.abs(gap))} {gap > 0 ? 'below' : 'above'} mid-mountain</>} · {shortDate(o.last.date)}
             </div>
             {o.week.snowCm != null && (
               <div className="text-xs text-ink-2 mt-1">
@@ -147,7 +150,7 @@ function ResortCard({ resort }: { resort: Resort }) {
       </div>
 
       <div className="mt-4" aria-live="polite">
-        <div className="text-[11px] uppercase tracking-wide text-ink-3">Forecast snowfall at {fmt.elev(summit.elevation)}</div>
+        <div className="text-[11px] uppercase tracking-wide text-ink-3">Forecast snowfall, mid-mountain ({fmt.elev(midBand(resort).elevation)})</div>
         {fc.error ? (
           <Notice tone="error">
             {fc.error.message} <button type="button" className="btn ml-2" onClick={fc.retry}>Retry</button>
@@ -159,7 +162,7 @@ function ResortCard({ resort }: { resort: Resort }) {
             <div className="grid grid-cols-3 gap-2 mt-1">
               {[72, 168, 240].map((h) => {
                 const s = windowStats(data, now, h);
-                const d = h <= 168 ? sinceLastVisit(`${resort.id}:summit:${h}`, s.total) : null;
+                const d = h <= 168 ? sinceLastVisit(`${resort.id}:mid:${h}`, s.total) : null;
                 return (
                   <div key={h}>
                     <div className="text-xl font-semibold">{fmt.snow(s.total)}</div>
@@ -241,7 +244,7 @@ function WhereWhen() {
     <section className="card p-4 mt-4" aria-labelledby="ww-title">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <h2 id="ww-title" className="text-base font-semibold">Where & when</h2>
-        <span className="text-xs text-ink-2">Blended snowfall at each resort's upper elevation · ★ best day · outlined: fewer than 3 forecast centres · R/M: rain or mixed at the summit</span>
+        <span className="text-xs text-ink-2">Blended snowfall at mid-mountain · ★ best day · outlined: fewer than 3 forecast centres · R/M: rain or mixed at the summit</span>
       </div>
       <div className="overflow-x-auto mt-2">
         <table className="w-full text-[12px] border-separate" style={{ borderSpacing: 3 }}>
@@ -256,7 +259,7 @@ function WhereWhen() {
 
 function WhereWhenRow({ resort, nDays, fmt, narrow }: { resort: Resort; nDays: number; fmt: Fmt; narrow: boolean }) {
   const summit = resort.bands.find((b) => b.key === 'summit')!;
-  const fc = useBandForecast(resort, summit);
+  const fc = useBandForecast(resort, midBand(resort));
   const today = todayIn(resort.tz);
   const data = fc.data;
   const days = data ? data.blendDaily.filter((d) => d.date >= today).slice(0, nDays) : [];
@@ -396,11 +399,10 @@ function TripForm({ onAdd }: { onAdd: (t: Trip) => void }) {
 function TripCard({ trip, onRemove }: { trip: Trip; onRemove: () => void }) {
   const fmt = useFmt();
   const resort = resortById(trip.resortId)!;
-  const summit = resort.bands.find((b) => b.key === 'summit')!;
   const today = todayIn(resort.tz);
   const lead = daysBetween(today, trip.start);
   const inRange = lead <= 14;
-  const fc = useBandForecast(resort, summit);
+  const fc = useBandForecast(resort, midBand(resort));
   const obs = usePrimaryStation(resort);
   return (
     <div className="card p-3">

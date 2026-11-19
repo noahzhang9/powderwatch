@@ -2,7 +2,7 @@ import { useCallback, useMemo, useState } from 'react';
 import { MODELS } from '../config/models';
 import type { BandKey, Resort } from '../config/resorts';
 import { Chart, baseOption, tipHeader, tipRow, type EChartsCoreOption } from '../components/Chart';
-import { Loading, ModelChip, Notice, Section, Seg } from '../components/ui';
+import { Lazy, Loading, ModelChip, Notice, Section, Seg } from '../components/ui';
 import { useBandForecast, useEnsembles, useRunMeta, type BandForecast, type EnsembleSet } from '../hooks/data';
 import { useNarrow } from '../hooks/useNarrow';
 import { useHashParam } from '../hooks/useRoute';
@@ -22,7 +22,7 @@ const VIEWS = ['daily', 'cumulative'] as const;
 export function StormView({ resort }: { resort: Resort }) {
   const fmt = useFmt();
   const narrow = useNarrow();
-  const [bandKey, setBandKey] = useHashParam<BandKey>('band', 'summit', BANDS);
+  const [bandKey, setBandKey] = useHashParam<BandKey>('band', 'mid', BANDS);
   const [mode, setMode] = useHashParam<(typeof VIEWS)[number]>('view', 'daily', VIEWS);
   const band = resort.bands.find((b) => b.key === bandKey)!;
   const fc = useBandForecast(resort, band);
@@ -138,7 +138,7 @@ export function StormView({ resort }: { resort: Resort }) {
             <Notice tone="error">Ensemble request failed: {ens.error.message} <button type="button" className="btn ml-2" onClick={ens.retry}>Retry</button></Notice>
           )}
           <Chances ens={ens.data} now={now} resort={resort} fmt={fmt} />
-          <RunChange data={data} meta={meta.data} band={band} resort={resort} now={now} fmt={fmt} />
+          <Lazy><RunChange data={data} meta={meta.data} band={band} resort={resort} now={now} fmt={fmt} /></Lazy>
           <Section
             title="Freezing level & snow level"
             subtitle="Thin lines: each model's freezing level (0 °C). Thick line: blended snow level, solid while precipitating. Rules: this resort's elevation bands."
@@ -149,7 +149,7 @@ export function StormView({ resort }: { resort: Resort }) {
             <TempChart data={data} visible={visible} tz={resort.tz} fmt={fmt} />
           </Section>
           <EnsembleSection ens={ens.data} loading={ens.loading} error={undefined} data={data} now={now} band={band} resort={resort} fmt={fmt} />
-          <RecentSection resort={resort} band={band} />
+          <Lazy><RecentSection resort={resort} band={band} /></Lazy>
         </>
       )}
     </div>

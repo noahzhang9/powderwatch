@@ -20,7 +20,7 @@ interface ModelPast {
 }
 
 async function modelPast(pt: { lat: number; lon: number; elevation: number }, resort: Resort): Promise<ModelPast | null> {
-  const raw = await fetchSurface(pt, resort.models, resort.tz, { pastDays: DAYS + 1, forecastDays: 1 });
+  const raw = await fetchSurface(pt, resort.models, resort.tz, { pastDays: DAYS + 1, forecastDays: 1, priority: 'low' });
   const models = raw.filter((s) => s.precip.some((v) => v != null)).map((s) => deriveModel(s));
   const b = blend(models);
   return b ? { models, blend: b } : null;

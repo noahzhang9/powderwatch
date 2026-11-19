@@ -3,8 +3,12 @@ import { ENSEMBLES, MODELS } from '../config/models';
 import type { Band, Resort } from '../config/resorts';
 import { alignMembers, deriveMembers, type MemberSeries } from '../lib/ensemble';
 import { blend, deriveModel, toDaily, type BlendHourly, type DailyRow, type DerivedHourly } from '../lib/forecast';
-import { fetchEnsemble, fetchProfiles, fetchRunMeta, fetchSurface, type Point, type RunMeta } from '../lib/openmeteo';
+import { fetchEnsemble, fetchProfiles, fetchRunMeta, fetchSurface, type Point, type RunMeta, type SurfaceHourly } from '../lib/openmeteo';
+import type { ProfileLevel } from '../lib/physics';
+import { useMemo } from 'react';
 import { useAsync } from './useAsync';
+
+type Profiles = Record<string, { time: number[]; levels: ProfileLevel[][] }>;
 
 export interface BandForecast {
   models: DerivedHourly[];
@@ -15,15 +19,9 @@ export interface BandForecast {
   missing: string[];
 }
 
-export async function loadBandForecast(resort: Resort, band: Band): Promise<BandForecast> {
-  const mid = resort.bands.find((b) => b.key === 'mid') ?? band;
-  const [surface, profiles] = await Promise.all([
-    fetchSurface({ lat: band.lat, lon: band.lon, elevation: band.elevation }, resort.models, resort.tz),
-    // Freezing/snow level is a free-atmosphere quantity: one profile per resort.
-    fetchProfiles({ lat: mid.lat, lon: mid.lon }, resort.models, resort.tz).catch(() => undefined),
-  ]);
-  const usable = surface.filter((s) => s.precip.some((v) => v != null));
-  const models = usable.map((s) => deriveModel(s, profiles));
+function buildBandForecast(resort: Resort, surface: SurfaceHourly[], profiles?: Profiles): BandForecast {
+  const usable = surface.filter((x) => x.precip.some((v) => v != null));
+  const models = usable.map((x) => deriveModel(x, profiles));
   const b = blend(models)!;
   const daily: Record<string, DailyRow[]> = {};
   for (const m of models) daily[m.model.id] = toDaily(m, resort.tz);
@@ -36,8 +34,23 @@ export async function loadBandForecast(resort: Resort, band: Band): Promise<Band
   };
 }
 
+/**
+ * Band forecast in two stages: models appear as soon as the surface request
+ * returns; freezing level and snow level for models that don't publish them
+ * fill in when the pressure-level profile arrives (one profile per resort).
+ */
 export function useBandForecast(resort: Resort, band: Band) {
-  return useAsync(() => loadBandForecast(resort, band), [resort.id, band.key]);
+  const mid = resort.bands.find((b) => b.key === 'mid') ?? band;
+  const surface = useAsync(
+    () => fetchSurface({ lat: band.lat, lon: band.lon, elevation: band.elevation }, resort.models, resort.tz),
+    [resort.id, band.key],
+  );
+  const profiles = useAsync(() => fetchProfiles({ lat: mid.lat, lon: mid.lon }, resort.models, resort.tz), [resort.id]);
+  const data = useMemo(
+    () => (surface.data ? buildBandForecast(resort, surface.data, profiles.data) : undefined),
+    [surface.data, profiles.data, resort],
+  );
+  return { data, error: surface.error, loading: surface.loading, retry: surface.retry, levelsPending: !profiles.data && !profiles.error };
 }
 
 export interface EnsembleSet {

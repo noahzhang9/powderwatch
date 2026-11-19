@@ -67,7 +67,7 @@ export function SnowpackView({ resort }: { resort: Resort }) {
 
   const ens = useEnsembles(point, resort.tz, !stale, pastDays);
   const det = useAsync(
-    () => fetchSurface(point, SCENARIO_MODELS, resort.tz, { pastDays }),
+    () => fetchSurface(point, SCENARIO_MODELS, resort.tz, { pastDays, priority: 'low' }),
     [st.id, pastDays],
     !stale,
   );
@@ -276,14 +276,15 @@ function SeasonChart({ clim, season, kToday, projection, showPrev, showScenarios
           formatter: (params: { axisValue: number }[]) => {
             const k = Math.round(params[0]?.axisValue ?? 0);
             const pj = proj ? proj.ks.indexOf(k) : -1;
+            // Keys mirror the marks: same colours and names as the legend above the chart.
             const rows = [
-              cur[k] != null && (kToday == null || k <= kToday) ? tipRow(p.ink1, `${season}–${String(season + 1).slice(2)}`, f(conv(cur[k])), p) : '',
-              pj >= 0 && proj!.p50[pj] != null ? tipRow(p.proj.line, 'projection median', f(conv(proj!.p50[pj])), p) + tipRow(p.proj.outer, 'projection 10–90%', `${f(conv(proj!.p10[pj]))} – ${f(conv(proj!.p90[pj]))}`, p) : '',
-              showPrev && prev[k] != null ? tipRow(p.ink3, `${season - 1}–${String(season).slice(2)}`, f(conv(prev[k])), p) : '',
-              tipRow(p.ink2, 'median', f(conv(clim.p50[k])), p),
-              tipRow(alpha(p.ink3, 0.6), '25–75%', `${f(conv(clim.p25[k]))} – ${f(conv(clim.p75[k]))}`, p),
-              tipRow(alpha(p.ink3, 0.4), '10–90%', `${f(conv(clim.p10[k]))} – ${f(conv(clim.p90[k]))}`, p),
-              tipRow(alpha(p.ink3, 0.25), 'record range', `${f(conv(clim.min[k]))} – ${f(conv(clim.max[k]))}`, p),
+              cur[k] != null && (kToday == null || k <= kToday) ? tipRow(p.ink1, 'This season', f(conv(cur[k])), p) : '',
+              pj >= 0 && proj!.p50[pj] != null ? tipRow(p.proj.line, 'Projection (median)', f(conv(proj!.p50[pj])), p) + tipRow(p.proj.outer, 'Projection 10–90%', `${f(conv(proj!.p10[pj]))} – ${f(conv(proj!.p90[pj]))}`, p) : '',
+              showPrev && prev[k] != null ? tipRow(p.lastSeason, 'Last season', f(conv(prev[k])), p) : '',
+              tipRow(p.ink3, 'Median', f(conv(clim.p50[k])), p),
+              thin ? '' : tipRow(alpha(p.ink3, 0.5), 'Middle half (25–75%)', `${f(conv(clim.p25[k]))} – ${f(conv(clim.p75[k]))}`, p),
+              thin ? '' : tipRow(alpha(p.ink3, 0.3), '10–90%', `${f(conv(clim.p10[k]))} – ${f(conv(clim.p90[k]))}`, p),
+              tipRow(alpha(p.ink3, 0.15), 'Record low–high', `${f(conv(clim.min[k]))} – ${f(conv(clim.max[k]))}`, p),
             ];
             return tipHeader(shortDate(seasonDate(season, k)), p) + rows.join('');
           },

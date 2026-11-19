@@ -1,4 +1,5 @@
-import type { ReactNode } from 'react';
+import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
+import { netStatus, subscribeNet } from '../lib/cache';
 
 export function Seg<T extends string>({ value, options, onChange, label }: {
   value: T; options: { value: T; label: ReactNode }[]; onChange: (v: T) => void; label: string;
@@ -50,8 +51,46 @@ export function Notice({ tone = 'info', children }: { tone?: 'info' | 'warn' | '
   );
 }
 
+let snapshot = netStatus();
+const getSnapshot = () => {
+  const n = netStatus();
+  if (n.active !== snapshot.active || n.queued !== snapshot.queued || n.retryUntil !== snapshot.retryUntil) snapshot = n;
+  return snapshot;
+};
+
+/** Loading text that says what it is waiting for (queue, rate-limit backoff). */
 export function Loading({ what }: { what: string }) {
-  return <div className="text-sm text-ink-3 py-10 text-center">Loading {what}…</div>;
+  const net = useSyncExternalStore(subscribeNet, getSnapshot);
+  const [, tick] = useState(0);
+  useEffect(() => {
+    if (!net.retryUntil) return;
+    const id = setInterval(() => tick((t) => t + 1), 1000);
+    return () => clearInterval(id);
+  }, [net.retryUntil]);
+  const wait = net.retryUntil ? Math.max(0, Math.ceil((net.retryUntil - Date.now()) / 1000)) : null;
+  return (
+    <div className="text-sm text-ink-3 py-10 text-center" aria-live="polite">
+      Loading {what}…
+      {wait != null ? (
+        <div className="text-xs mt-1">Open-Meteo is rate-limiting this network ({net.lastHttpStatus}); retrying in {wait} s. Shared networks such as a corporate VPN hit this sooner.</div>
+      ) : net.active + net.queued > 0 ? (
+        <div className="text-xs mt-1">{net.active} request{net.active === 1 ? '' : 's'} in flight{net.queued ? `, ${net.queued} queued` : ''}</div>
+      ) : null}
+    </div>
+  );
+}
+
+/** Renders children only once scrolled near the viewport (defers their network requests). */
+export function Lazy({ children, minHeight = 200 }: { children: ReactNode; minHeight?: number }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [shown, setShown] = useState(false);
+  useEffect(() => {
+    if (shown || !ref.current) return;
+    const io = new IntersectionObserver((entries) => entries.some((e) => e.isIntersecting) && setShown(true), { rootMargin: '600px' });
+    io.observe(ref.current);
+    return () => io.disconnect();
+  }, [shown]);
+  return <div ref={ref} style={shown ? undefined : { minHeight }}>{shown ? children : null}</div>;
 }
 
 /** Legend + visibility toggle for a model; mirrors the line mark it controls. */

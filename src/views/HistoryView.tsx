@@ -12,6 +12,7 @@ import { useFmt, type Fmt } from '../lib/prefs';
 import { isNum } from '../lib/stats';
 import { addDays, dayLabel, localMidnightUnix, nowUnix, runLabel, todayIn } from '../lib/time';
 import { useNarrow } from '../hooks/useNarrow';
+import { useHashParam } from '../hooks/useRoute';
 
 const shortDayFromUnix = (u: number) => new Date(u * 1000).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
 
@@ -29,7 +30,7 @@ interface RunResult {
 
 export function HistoryView({ resort }: { resort: Resort }) {
   const fmt = useFmt();
-  const [bandKey, setBandKey] = useState<BandKey>('summit');
+  const [bandKey, setBandKey] = useHashParam<BandKey>('band', 'mid', ['base', 'mid', 'summit']);
   const band = resort.bands.find((b) => b.key === bandKey)!;
   const available = HISTORY_MODELS.filter((m) => resort.models.includes(m));
   const [selected, setSelected] = useState<string[]>(['ecmwf_ifs025', 'gfs_global', 'gem_global'].filter((m) => available.includes(m)));

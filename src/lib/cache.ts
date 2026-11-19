@@ -59,19 +59,64 @@ export async function clearCache(): Promise<void> {
   });
 }
 
-// --- simple concurrency limiter ---
+// --- concurrency limiter with two priorities ---
+// High-priority requests (the forecast on screen) always go first; low-priority
+// ones (ensembles, past runs, side panels) start only when no high-priority
+// request is running or waiting, so they never compete for bandwidth with it.
+export type Priority = 'high' | 'low';
 const MAX_CONCURRENT = 4;
 let active = 0;
-const queue: (() => void)[] = [];
-async function withSlot<T>(fn: () => Promise<T>): Promise<T> {
-  if (active >= MAX_CONCURRENT) await new Promise<void>((r) => queue.push(r));
-  active++;
+let activeHigh = 0;
+const queues: Record<Priority, (() => void)[]> = { high: [], low: [] };
+
+function pump() {
+  while (active < MAX_CONCURRENT) {
+    const next = queues.high.shift() ?? (activeHigh === 0 ? queues.low.shift() : undefined);
+    if (!next) break;
+    next();
+  }
+}
+
+async function withSlot<T>(priority: Priority, fn: () => Promise<T>): Promise<T> {
+  await new Promise<void>((r) => {
+    queues[priority].push(() => {
+      active++;
+      if (priority === 'high') activeHigh++;
+      r();
+    });
+    pump();
+    notify();
+  });
   try {
     return await fn();
   } finally {
     active--;
-    queue.shift()?.();
+    if (priority === 'high') activeHigh--;
+    pump();
+    notify();
   }
+}
+
+// --- network status, so loading messages can say why they are waiting ---
+export interface NetStatus {
+  active: number;
+  queued: number;
+  /** Unix ms until which a rate-limited request is backing off, if any. */
+  retryUntil: number | null;
+  lastHttpStatus: number | null;
+}
+let retryUntil: number | null = null;
+let lastHttpStatus: number | null = null;
+const listeners = new Set<() => void>();
+function notify() {
+  for (const l of listeners) l();
+}
+export function netStatus(): NetStatus {
+  return { active, queued: queues.high.length + queues.low.length, retryUntil, lastHttpStatus };
+}
+export function subscribeNet(l: () => void): () => void {
+  listeners.add(l);
+  return () => listeners.delete(l);
 }
 
 export class HttpError extends Error {
@@ -83,7 +128,7 @@ export class HttpError extends Error {
 }
 
 /** Fetch JSON with caching. `ttlSec = Infinity` caches forever. */
-export async function cachedJson<T>(url: string, ttlSec: number): Promise<T> {
+export async function cachedJson<T>(url: string, ttlSec: number, priority: Priority = 'high'): Promise<T> {
   const now = Date.now() / 1000;
   const m = mem.get(url);
   if (m && now - m.t < ttlSec) return m.data as T;
@@ -96,12 +141,18 @@ export async function cachedJson<T>(url: string, ttlSec: number): Promise<T> {
       mem.set(url, stored);
       return stored.data as T;
     }
-    const fetchFresh = withSlot(async () => {
+    const fetchFresh = withSlot(priority, async () => {
       let res = await fetch(url);
       // Rate limits and server hiccups: retry twice with jittered backoff (~5 s, ~15 s).
       for (const waitMs of [5000, 15000]) {
         if (res.ok || !(res.status === 429 || res.status >= 500)) break;
-        await new Promise((r) => setTimeout(r, waitMs * (0.75 + Math.random() * 0.5)));
+        lastHttpStatus = res.status;
+        const wait = waitMs * (0.75 + Math.random() * 0.5);
+        retryUntil = Date.now() + wait;
+        notify();
+        await new Promise((r) => setTimeout(r, wait));
+        retryUntil = null;
+        notify();
         res = await fetch(url);
       }
       if (!res.ok) {

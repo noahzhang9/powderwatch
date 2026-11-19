@@ -3,7 +3,7 @@
  * Free tier, CORS-enabled, no key: the browser calls it directly.
  * https://open-meteo.com/en/docs — non-commercial use, < 10k calls/day.
  */
-import { cachedJson } from './cache';
+import { cachedJson, type Priority } from './cache';
 import type { ProfileLevel } from './physics';
 import type { Series } from './stats';
 
@@ -87,7 +87,7 @@ function parseSurface(d: OmResponse, modelIds: string[]): SurfaceHourly[] {
 }
 
 export async function fetchSurface(
-  pt: Point, modelIds: string[], tz: string, opts: { pastDays?: number; forecastDays?: number } = {},
+  pt: Point, modelIds: string[], tz: string, opts: { pastDays?: number; forecastDays?: number; priority?: Priority } = {},
 ): Promise<SurfaceHourly[]> {
   const url = `${FORECAST}?${qs({
     latitude: pt.lat, longitude: pt.lon, elevation: pt.elevation,
@@ -95,7 +95,7 @@ export async function fetchSurface(
     forecast_days: opts.forecastDays ?? 16, past_days: opts.pastDays,
     timezone: tz, timeformat: 'unixtime',
   })}`;
-  return parseSurface(await cachedJson<OmResponse>(url, FORECAST_TTL), modelIds);
+  return parseSurface(await cachedJson<OmResponse>(url, FORECAST_TTL, opts.priority ?? 'high'), modelIds);
 }
 
 /** One past (or the latest) run of a single model — immutable once complete. */
@@ -109,7 +109,7 @@ export async function fetchSingleRun(
     models: modelId, run, forecast_days: forecastDays, timezone: tz, timeformat: 'unixtime',
   })}`;
   const ageH = (Date.now() / 1000 - runUnix) / 3600;
-  const d = await cachedJson<OmResponse>(url, ageH > 30 ? Infinity : FORECAST_TTL);
+  const d = await cachedJson<OmResponse>(url, ageH > 30 ? Infinity : FORECAST_TTL, 'low');
   const [s] = parseSurface(d, [modelId]);
   return s;
 }
@@ -123,7 +123,7 @@ export async function fetchProfiles(
     hourly: PROFILE_VARS.join(','), models: modelIds.join(','),
     forecast_days: 16, timezone: tz, timeformat: 'unixtime',
   })}`;
-  const d = await cachedJson<OmResponse>(url, FORECAST_TTL);
+  const d = await cachedJson<OmResponse>(url, FORECAST_TTL, 'high');
   const multi = modelIds.length > 1;
   const time = d.hourly.time as number[];
   const out: Record<string, { time: number[]; levels: ProfileLevel[][] }> = {};
@@ -162,7 +162,7 @@ export async function fetchEnsemble(
     hourly: 'precipitation,temperature_2m,relative_humidity_2m,freezing_level_height',
     models: modelId, forecast_days: 16, past_days: opts.pastDays, timezone: tz, timeformat: 'unixtime',
   })}`;
-  const d = await cachedJson<OmResponse>(url, FORECAST_TTL);
+  const d = await cachedJson<OmResponse>(url, FORECAST_TTL, 'low');
   const h = d.hourly;
   const keyFor = (v: string, member: number) => (member === 0 ? v : `${v}_member${String(member).padStart(2, '0')}`);
   const members: EnsembleHourly['members'] = [];
@@ -192,7 +192,7 @@ export async function fetchRunMeta(metaId: string): Promise<RunMeta | null> {
   try {
     const d = await cachedJson<{
       last_run_initialisation_time: number; last_run_availability_time: number; update_interval_seconds: number;
-    }>(`${META}/${metaId}/static/meta.json`, META_TTL);
+    }>(`${META}/${metaId}/static/meta.json`, META_TTL, 'low');
     return {
       initUnix: d.last_run_initialisation_time,
       availableUnix: d.last_run_availability_time,
