@@ -14,7 +14,8 @@ below for authoritative data.
 | Lac des Vaux (ATT2), Combatzeline (NEN3) | WSL Institute for Snow and Avalanche Research SLF, IMIS network | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) | WSL Institute for Snow and Avalanche Research SLF, [www.slf.ch](https://www.slf.ch) |
 | Fionnay (FIO) | MeteoSwiss Open Government Data | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) | Source: MeteoSwiss |
 
-Forecast data shown on the site is fetched live by the browser from [Open-Meteo](https://open-meteo.com/)
-(CC BY 4.0) and is not stored here.
+Forecast data shown on the site comes from [Open-Meteo](https://open-meteo.com/) (CC BY 4.0). The
+files under `data/fc/` are unmodified copies of Open-Meteo API responses, refreshed every 3 hours;
+the browser fetches anything not in them from Open-Meteo directly.
 
 The MIT licence in `LICENSE` covers the PowderWatch source code only, not this data.

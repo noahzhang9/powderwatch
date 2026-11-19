@@ -15,6 +15,7 @@ import { snowClass } from '../lib/palette';
 import { dailyCentres, dailyPhase } from '../lib/forecast';
 import { sinceLastVisit } from '../lib/visits';
 import { useNarrow } from '../hooks/useNarrow';
+import { midBand } from '../lib/requests';
 import { Delta } from './storm/Panels';
 import { LOW_CENTRES } from './storm/Daily';
 import { addDays, dayLabel, daysBetween, localMidnightUnix, nowUnix, shortDate, todayIn, weekday } from '../lib/time';
@@ -35,9 +36,6 @@ export function Dashboard() {
     </div>
   );
 }
-
-/** The dashboard, grid and trips use mid-mountain, the most representative elevation for a ski day. */
-const midBand = (r: Resort) => r.bands.find((b) => b.key === 'mid')!;
 
 function usePrimaryStation(resort: Resort) {
   return useAsync(async () => {

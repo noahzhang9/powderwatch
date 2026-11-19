@@ -1,13 +1,14 @@
 /** Storm-tracker panels: headline totals, chances, run-to-run change and run times. */
-import { MODELS, HISTORY_MODELS } from '../../config/models';
+import { MODELS } from '../../config/models';
 import type { Band, Resort } from '../../config/resorts';
 import { Notice, Section, Tile } from '../../components/ui';
-import type { BandForecast, EnsembleSet } from '../../hooks/data';
+import { loadRunChange, type BandForecast, type EnsembleSet } from '../../hooks/data';
 import { useAsync } from '../../hooks/useAsync';
 import { probabilityAtLeast, probabilityFzlAbove, windowQuantiles, windowTotals } from '../../lib/ensemble';
-import { deriveModel, lastValidTime, windowSum, type DerivedHourly } from '../../lib/forecast';
-import { fetchSingleRun, type RunMeta } from '../../lib/openmeteo';
+import { lastValidTime, windowSum, type DerivedHourly } from '../../lib/forecast';
+import type { RunMeta } from '../../lib/openmeteo';
 import type { Fmt } from '../../lib/prefs';
+import { runChangeModels } from '../../lib/requests';
 import { isNum } from '../../lib/stats';
 import { ago, runLabel } from '../../lib/time';
 import { sinceLastVisit } from '../../lib/visits';
@@ -151,20 +152,8 @@ export function Chances({ ens, now, resort, fmt }: { ens?: EnsembleSet; now: num
 export function RunChange({ data, meta, band, resort, now, fmt }: {
   data: BandForecast; meta?: Record<string, RunMeta | null>; band: Band; resort: Resort; now: number; fmt: Fmt;
 }) {
-  const ids = HISTORY_MODELS.filter((id) => data.models.some((m) => m.model.id === id));
-  const prev = useAsync(async () => {
-    const out: Record<string, DerivedHourly | null> = {};
-    await Promise.all(ids.map(async (id) => {
-      const init = meta?.[id]?.initUnix;
-      if (!init) return (out[id] = null);
-      try {
-        out[id] = deriveModel(await fetchSingleRun({ lat: band.lat, lon: band.lon, elevation: band.elevation }, id, init - 43200, resort.tz));
-      } catch {
-        out[id] = null;
-      }
-    }));
-    return out;
-  }, [band.key, resort.id, meta != null, ids.join(',')], meta != null);
+  const ids = runChangeModels(data.models.map((m) => m.model.id));
+  const prev = useAsync(() => loadRunChange(resort, band, ids, meta), [band.key, resort.id, meta != null, ids.join(',')], meta != null);
   const rows = ids.map((id) => {
     const cur = data.models.find((m) => m.model.id === id)!;
     const old = prev.data?.[id] ?? null;

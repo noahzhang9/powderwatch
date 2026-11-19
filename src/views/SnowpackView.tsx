@@ -4,20 +4,19 @@ import type { Resort } from '../config/resorts';
 import { stationsFor, type StationDef } from '../config/stations';
 import { Chart, baseOption, tipHeader, tipRow, type EChartsCoreOption } from '../components/Chart';
 import { Loading, Notice, Section, Seg, Tile } from '../components/ui';
-import { useEnsembles } from '../hooks/data';
+import { loadScenarios, useEnsembles } from '../hooks/data';
 import { useAsync } from '../hooks/useAsync';
 import { buildClimatology, currentSeason, percentileRank, SEASON_DAYS, seasonDate, seasonIndex, typicalDayFor, type Climatology } from '../lib/climatology';
 import { deriveModel } from '../lib/forecast';
-import { fetchSurface } from '../lib/openmeteo';
-import { latest, loadStation, valueOn, type StationFile, type Variable } from '../lib/obs';
+import { loadStation, valueOn, type StationFile, type Variable } from '../lib/obs';
 import { alpha, slotColor, type ChartPalette } from '../lib/palette';
 import { useFmt, type Fmt } from '../lib/prefs';
 import { runSnowpack, type ForcingHour } from '../lib/snowpack';
 import { familyWeights, isNum, weightedQuantile, type Series } from '../lib/stats';
 import { addDays, ago, daysBetween, localMidnightUnix, shortDate, todayIn } from '../lib/time';
 import { useHashParam } from '../hooks/useRoute';
+import { defaultStationIndex, pointOf, projectionStart } from '../lib/requests';
 
-const SCENARIO_MODELS = ['ecmwf_ifs025', 'gfs_global', 'gem_global', 'icon_global', 'ecmwf_aifs025_single'];
 const PROJECTION_DAYS = 15;
 const MONTH_STARTS = [0, 31, 61, 92, 123, 151, 182, 212, 243];
 const MONTH_NAMES = ['Oct', 'Nov', 'Dec', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'];
@@ -46,9 +45,7 @@ export function SnowpackView({ resort }: { resort: Resort }) {
   // Default to the first station (preference order) that reported in the last 3 days.
   const defaultId = useAsync(async () => {
     const files = await Promise.all(stations.map((s) => loadStation(s.id)));
-    const today = todayIn(resort.tz);
-    const i = files.findIndex((f) => f?.lastDepthDate && daysBetween(f.lastDepthDate, today) <= 3);
-    return stations[Math.max(0, i)].id;
+    return stations[defaultStationIndex(files, todayIn(resort.tz))].id;
   }, [resort.id]);
   const stationId = picked ?? defaultId.data ?? stations[0].id;
   const st = stations.find((s) => s.id === stationId)!;
@@ -60,17 +57,11 @@ export function SnowpackView({ resort }: { resort: Resort }) {
   const file = useAsync(() => loadStation(st.id), [st.id]);
   const today = todayIn(resort.tz);
   const clim = useMemo(() => (file.data ? buildClimatology(file.data, v, today) : null), [file.data, v, today]);
-  const last = file.data ? latest(file.data, v) : null;
-  const stale = !last || daysBetween(last.date, today) > 5;
-  const pastDays = last && !stale ? Math.min(6, daysBetween(last.date, today) + 1) : 0;
-  const point = { lat: st.lat, lon: st.lon, elevation: st.elevation };
+  const { last, stale, pastDays } = projectionStart(file.data ?? null, v, today);
+  const point = pointOf(st);
 
   const ens = useEnsembles(point, resort.tz, !stale, pastDays);
-  const det = useAsync(
-    () => fetchSurface(point, SCENARIO_MODELS, resort.tz, { pastDays, priority: 'low' }),
-    [st.id, pastDays],
-    !stale,
-  );
+  const det = useAsync(() => loadScenarios(point, resort.tz, pastDays), [st.id, pastDays], !stale);
 
   const projection = useMemo<Projection | null>(() => {
     if (!file.data || !last || stale || !ens.data) return null;

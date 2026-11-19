@@ -3,28 +3,15 @@ import type { Band, Resort } from '../config/resorts';
 import { stationsFor, type StationDef } from '../config/stations';
 import { Chart, baseOption, tipHeader, tipRow, type EChartsCoreOption } from '../components/Chart';
 import { Loading, Notice, Section, Seg } from '../components/ui';
+import { loadRecentModels } from '../hooks/data';
 import { useAsync } from '../hooks/useAsync';
-import { blend, deriveModel, windowSum, type BlendHourly, type DerivedHourly } from '../lib/forecast';
+import { windowSum, type DerivedHourly } from '../lib/forecast';
 import { loadStation, type StationFile } from '../lib/obs';
-import { fetchSurface } from '../lib/openmeteo';
 import { alpha, slotColor, type ChartPalette } from '../lib/palette';
 import { useFmt, type Fmt } from '../lib/prefs';
 import { measuresNewSnow, recentReports, sumOrNull, type RecentDay } from '../lib/recent';
+import { RECENT_DAYS as DAYS, pointOf } from '../lib/requests';
 import { addDays, dayLabel, daysBetween, localMidnightUnix, todayIn } from '../lib/time';
-
-const DAYS = 7;
-
-interface ModelPast {
-  models: DerivedHourly[];
-  blend: BlendHourly;
-}
-
-async function modelPast(pt: { lat: number; lon: number; elevation: number }, resort: Resort): Promise<ModelPast | null> {
-  const raw = await fetchSurface(pt, resort.models, resort.tz, { pastDays: DAYS + 1, forecastDays: 1, priority: 'low' });
-  const models = raw.filter((s) => s.precip.some((v) => v != null)).map((s) => deriveModel(s));
-  const b = blend(models);
-  return b ? { models, blend: b } : null;
-}
 
 /** Modelled snowfall for the 24 h ending 06:00 local on each report date. */
 function modelDaily(series: { time: number[]; snowCm: (number | null)[] }, dates: string[], tz: string) {
@@ -43,10 +30,10 @@ export function RecentSection({ resort, band }: { resort: Resort; band: Band }) 
 
   const files = useAsync(() => Promise.all(stations.map((s) => loadStation(s.id))), [resort.id]);
   const atStations = useAsync(
-    () => Promise.all(stations.map((s) => modelPast({ lat: s.lat, lon: s.lon, elevation: s.elevation }, resort).catch(() => null))),
+    () => Promise.all(stations.map((s) => loadRecentModels(pointOf(s), resort).catch(() => null))),
     [resort.id],
   );
-  const atBand = useAsync(() => modelPast({ lat: band.lat, lon: band.lon, elevation: band.elevation }, resort), [resort.id, band.key]);
+  const atBand = useAsync(() => loadRecentModels(pointOf(band), resort), [resort.id, band.key]);
 
   const rows = useMemo(() => {
     if (!files.data) return null;

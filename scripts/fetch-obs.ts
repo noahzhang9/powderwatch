@@ -26,7 +26,7 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const OUT = join(ROOT, 'public/data/obs');
 const CACHE = join(ROOT, '.cache');
 const CONTACT = process.env.PW_CONTACT;
-const UA = `PowderWatch/0.2 (personal snow dashboard; scheduled fetch every 6 h${CONTACT ? `; +${CONTACT}` : ''})`;
+const UA = `PowderWatch/0.2 (personal snow dashboard; scheduled fetch every 3 h${CONTACT ? `; +${CONTACT}` : ''})`;
 const FULL = process.env.FULL_REFRESH === '1';
 const ARCHIVE_MAX_AGE_DAYS = Number(process.env.ARCHIVE_MAX_AGE_DAYS ?? 30);
 /** Incremental window: long enough to pick up late QC revisions. */
