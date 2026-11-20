@@ -39,7 +39,7 @@ For browser checks, use `npm run preview:local`, not a fresh `npm run snapshot`.
 | `src/lib/forecast.ts` | Per-model products, local-day totals, family-balanced blend, centre counts, precipitation type per band |
 | `src/lib/ensemble.ts` | Ensemble members, plumes, exceedance probabilities, split-day detection |
 | `src/lib/snowpack.ts` | Layered snowpack model. `DEFAULT_PARAMS` are calibrated; see the backtest |
-| `src/lib/climatology.ts`, `obs.ts`, `recent.ts` | Station history, percentiles, last-7-days alignment |
+| `src/lib/climatology.ts`, `obs.ts`, `recent.ts`, `newsnow.ts` | Station history, percentiles, last-7-days alignment, new snow estimated from SWE at SNOTEL stations |
 | `src/lib/openmeteo.ts` | Pure URL builders + fetchers for every Open-Meteo request |
 | `src/lib/requests.ts` | Each view's request choices (points, model lists, `pastDays`, …), shared by the views and the snapshot plan |
 | `src/lib/cache.ts` | Fetch cache: memory → IndexedDB → snapshot manifest → live, with priority scheduling and 429 backoff. Snapshot-only builds never go live (`snapshotUse`), and neither do `{ live: false }` requests |
@@ -107,6 +107,8 @@ The dashboard's 7-day ensemble median reads the Forecast tab's mid ensembles wit
 **Station depths are not resort base depths.** The UI must always label them as measurements at a named station and elevation.
 
 **SNODAS values are model estimates, not measurements.** Wherever a SNODAS point is shown, the tile, chart title, legend and tooltip say "modelled", and the station line says what SNODAS is. Its climatology compares it only with its own SNODAS history.
+
+**New snow estimated from SWE is not a measurement.** At SNOTEL stations (`src/lib/newsnow.ts`) it is always labelled "estimated from SWE" with the station's name and elevation, shown as a range, and compared only with the same station's past seasons estimated the same way. Stations that measure new snow keep their measurements; stations without SWE get no estimate. It is not on the dashboard: only behind the "Estimated new snow" toggle of the Forecast tab's last 7 days, and as one line on the Snowpack tab.
 
 ## UI principle: don't overwhelm the user
 

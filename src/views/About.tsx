@@ -7,6 +7,7 @@ import { DEFAULT_PARAMS } from '../lib/snowpack';
 import { GAP_FILL_DAYS, MIN_SEASON_COVERAGE, SMOOTH_HALF_DAYS } from '../lib/climatology';
 import { CHANCE_THRESHOLDS_CM, SPLIT_HIGH_CM, SPLIT_LOW_CM, SPLIT_MIN_SHARE } from '../lib/ensemble';
 import { DRIVEN_MIN_CM, DRIVEN_SHARE, LOW_CENTRES, PHASE_BAND_M } from '../lib/forecast';
+import { DEFAULT_SLR, ESTIMATE_ERROR_PCT, MIN_COMPARE_SEASONS, MIN_SWE_GAIN_MM, SLR_RANGE } from '../lib/newsnow';
 import { useFmt } from '../lib/prefs';
 import { WPC_ATTRIBUTION, WPC_CATEGORY_LABEL, WPC_THRESHOLDS_IN } from '../lib/wpc';
 import { BEST_DAY_MIN_CM, GRID_DAYS, NARROW_GRID_DAYS } from './Dashboard';
@@ -100,6 +101,35 @@ export function About() {
         </li>
         <li>Percentile bands are computed across seasons for each calendar day, then smoothed with a {2 * SMOOTH_HALF_DAYS + 1}-day running mean.</li>
         <li>Each comparison uses one station's own record — never mixed with resort-reported depths.</li>
+      </ul>
+
+      <h2>New snow estimated from SWE (SNOTEL)</h2>
+      <ul className="list-disc pl-5">
+        <li>
+          SNOTEL stations measure snow depth and water (SWE) at midnight, not new snow. Behind "Estimated new snow" in the Forecast tab's last 7 days,
+          and in one line on the Snowpack tab, it is estimated from the water the snow pillow gained, always labelled "estimated from SWE" with the
+          station's name and elevation. Stations that measure new snow (SLF, MeteoSwiss, ECCC) keep their measurements; stations without SWE get no estimate.
+        </li>
+        <li>
+          Each day is the 24 h ending at the midnight reading that opens it. A day counts only when the pillow gained at least {fmt.water(MIN_SWE_GAIN_MM)} of
+          water, two of SNOTEL's 0.1 in steps: single steps up and down are about equally common in mid-winter, so they are mostly noise. Less is no new
+          snow, whatever the depth did.
+        </li>
+        <li>
+          When water was gained but the depth fell, the day is marked <i>rain or mixed</i> and gets no estimate. Otherwise new snow ≈ the larger of the
+          depth gain and the water gained × the snow-to-liquid ratio at the station's mean temperature over those 24 h (TAVG), from the same fresh-snow
+          density as the forecasts (about {snowToLiquidRatio(0).toFixed(0)}:1 at 0 °C, {snowToLiquidRatio(-5).toFixed(0)}:1 at −5 °C). A day without a
+          temperature reading uses {DEFAULT_SLR}:1, and the page says when it did.
+        </li>
+        <li>
+          It is shown as a range, the ratio × {SLR_RANGE.low} to × {SLR_RANGE.high}. In the Washington Cascades such an estimate is typically off by
+          {' '}{ESTIMATE_ERROR_PCT.day[0]}–{ESTIMATE_ERROR_PCT.day[1]}% for a single day and by about {ESTIMATE_ERROR_PCT.season}% over a season.
+        </li>
+        <li>
+          Snowpack tab: this season's sum from Oct 1 to the latest reading, against the median of the station's own past seasons over the same dates,
+          each estimated the same way. A past season counts when at least {Math.round(MIN_SEASON_COVERAGE * 100)}% of those days have readings, and the
+          median needs {MIN_COMPARE_SEASONS} such seasons. Rain-or-mixed days add nothing, so storms that turned to rain are undercounted.
+        </li>
       </ul>
 
       <h2>Modelled snowpack: SNODAS (US resorts)</h2>

@@ -9,6 +9,7 @@ import { useAsync } from '../hooks/useAsync';
 import { isNotInSnapshot } from '../lib/cache';
 import { buildClimatology, currentSeason, percentileRank, SEASON_DAYS, seasonDate, seasonIndex, typicalDayFor, type Climatology } from '../lib/climatology';
 import { deriveModel } from '../lib/forecast';
+import { estimateText, estimatesNewSnow, ratioFallback, seasonEstimate } from '../lib/newsnow';
 import { loadStation, valueOn, type StationFile, type Variable } from '../lib/obs';
 import { alpha, slotColor, type ChartPalette } from '../lib/palette';
 import { useFmt, type Fmt } from '../lib/prefs';
@@ -165,6 +166,7 @@ export function SnowpackView({ resort }: { resort: Resort }) {
       ) : (
         <>
           <Stats clim={clim} last={last} today={today} projection={projection} fmt={fmt} v={v} stale={stale} ensError={ens.error} modelled={!!st.modelled} />
+          {estimatesNewSnow(st, file.data) && <SeasonNewSnow st={st} file={file.data} today={today} fmt={fmt} />}
           {stale && (
             <Notice tone="warn">
               {last ? `Latest reading is from ${shortDate(last.date)}, too old to start a projection.` : 'No readings this season.'} Climatology is still shown.
@@ -286,6 +288,27 @@ function Stats({ clim, last, today, projection, fmt, v, stale, ensError, modelle
         sub={projection && j7 >= 0 ? `spread ${show(projection.p10[j7])} – ${show(projection.p90[j7])}` : stale ? 'no recent reading' : ensError ? (isNotInSnapshot(ensError) ? 'not in the local snapshot' : 'ensembles unavailable') : 'loading ensembles…'}
       />
     </div>
+  );
+}
+
+/** One line: this season's new snow estimated from SWE, against the station's own past seasons estimated the same way. */
+function SeasonNewSnow({ st, file, today, fmt }: { st: StationDef; file: StationFile; today: string; fmt: Fmt }) {
+  const s = useMemo(() => seasonEstimate(file, today), [file, today]);
+  if (!s) return null;
+  const fallback = ratioFallback(file, s.total);
+  const { pastMedian: m, total: t } = s;
+  return (
+    <p
+      className="text-xs text-ink-2 mt-3 leading-relaxed"
+      title="SNOTEL doesn't measure new snow. Each day with water gained and no fall in depth counts the larger of the depth gain and the water times the snow ratio at that day's mean temperature; the Methods page gives the rule."
+    >
+      <b className="text-ink">This season</b> ({shortDate(seasonDate(s.season, 0))} – {shortDate(s.through)}): {estimateText(t, st, fmt)}.{' '}
+      {m
+        ? <>Median by this date over {s.pastSeasons} past seasons, estimated the same way: ≈ {fmt.snowRange(m.lowCm, m.highCm)}.</>
+        : <>Too few past seasons with complete readings ({s.pastSeasons}) to compare with.</>}
+      {t.rainOrMixedDays > 0 && <> {t.rainOrMixedDays === 1 ? 'One rain-or-mixed day adds' : `${t.rainOrMixedDays} rain-or-mixed days add`} nothing.</>}
+      {fallback && <> {fallback}</>}
+    </p>
   );
 }
 

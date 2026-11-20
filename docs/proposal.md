@@ -123,6 +123,7 @@ Candidates not yet added:
 - **Phones:** 8 days by default with a 16-day toggle; model chips, links and settings collapse, and the resort nav scrolls sideways.
 - **Last 7 days, measured vs. modelled:** for every station, each column is the 24 h ending that morning.
   - Measured: new snow where the station reports it (SLF, MeteoSwiss); otherwise depth change plus water gained.
+  - SNOTEL stations: an "Estimated new snow" toggle, off by default, swaps the depth-change bars for new snow estimated from the water gained (`src/lib/newsnow.ts`): on a day the pillow gained at least 5 mm and depth didn't fall, the larger of the depth gain and the water × the snow-to-liquid ratio at the day's mean temperature (TAVG), as a range from × 0.8 to × 1.3 the ratio; a day whose depth fell while water was gained is flagged *rain/mixed* with no estimate. It is always labelled "estimated from SWE" with the station's name and elevation. In the Washington Cascades such an estimate is off by roughly 30–50% for a day and 25% over a season.
   - Modelled: the same physics applied to the models' short-range output at the station's location and elevation, which is the first step towards Phase 4 verification.
   - Source day boundaries are aligned to within about 6 h.
 - **Freezing level vs. snow level:** the blended freezing level over a band spanning the lowest to highest of the models selected with the chips, the blended snow level (solid while precipitating), and horizontal rules at the resort's bands. An "Each model" toggle, off by default, adds each model's line in its colour.
@@ -166,6 +167,8 @@ Headline numbers:
 - percentile rank;
 - "typical for" date, with days ahead or behind normal;
 - projected depth in 7 days, with its spread.
+
+At SNOTEL stations one line under the tiles gives this season's new snow estimated from SWE (the rule above, under the last 7 days), Oct 1 to the latest reading, against the median of the station's own past seasons over the same dates, estimated the same way.
 
 Climatology rules:
 

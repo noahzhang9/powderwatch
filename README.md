@@ -67,8 +67,9 @@ appears once the last scheduled update is more than 8 hours old.
     fetched before that dated each reading a day early. An incremental run that finds such a file (its
     readings match the fetch one day earlier) fetches that station's full history instead of merging
     into it, so no file mixes the two datings.
-  - SNOTEL files also carry `tavgC`, the daily mean temperature (AWDB `TAVG`). An incremental run adds
-    it for its recent window only; older files without it stay valid.
+  - SNOTEL files also carry `tavgC`, the daily mean temperature (AWDB `TAVG`), which sets the snow ratio
+    of new snow estimated from SWE (`src/lib/newsnow.ts`). An incremental run adds it for its recent
+    window only; older files without it stay valid, and the site then uses 10:1 and says so.
   - **One-time step once `periodRef=START` and `TAVG` are on `main`:** **Run workflow** with
     **full_refresh** ticked, so every station file is rewritten in one run, with its temperature
     history. The workflow's concurrency group keeps one waiting run and cancels it when another is
