@@ -9,6 +9,7 @@ import { ResortView, TABS } from './views/ResortView';
 import { About } from './views/About';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { WPC_ATTRIBUTION, WPC_PAGE } from './lib/wpc';
+import { SNODAS_ATTR, SNODAS_DOI } from './config/stations';
 
 export function App() {
   const { parts, query } = useRoute();
@@ -94,6 +95,10 @@ export function App() {
           contains information licensed under the <a href="https://www2.gov.bc.ca/gov/content/data/policy-standards/data-policies/open-data/open-government-licence-bc">Open Government Licence – British Columbia</a> (BC River Forecast Centre);{' '}
           <a href="https://www.slf.ch">WSL Institute for Snow and Avalanche Research SLF</a> (CC BY 4.0); Source: <a href="https://www.meteoswiss.admin.ch">MeteoSwiss</a> (CC BY 4.0).
           Station data is processed (daily aggregation, unit conversion, plausibility filtering) — see <a href="./data/NOTICE.md">data notice</a>.
+        </p>
+        <p className="mt-1">
+          Modelled snowpack (US resorts, an option on the Snowpack tab): <a href={SNODAS_DOI}>{SNODAS_ATTR}</a>, National Operational Hydrologic Remote Sensing
+          Center (2004), doi:10.7265/N5TB14TC. A model estimate, not a measurement.
         </p>
         <p className="mt-1">Station depths are measurements near each resort, not resort-reported base depths. Personal, non-commercial project.</p>
       </footer>

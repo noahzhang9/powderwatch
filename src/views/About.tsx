@@ -1,6 +1,6 @@
 import { ENSEMBLES, MODELS, NBM } from '../config/models';
 import { RESORTS } from '../config/resorts';
-import { STATIONS } from '../config/stations';
+import { SNODAS_ABOUT, SNODAS_CITATION, SNODAS_DOI, SNODAS_FIRST_SEASON, SNODAS_POINTS, SNODAS_RESORTS, STATIONS } from '../config/stations';
 import { SNAPSHOT_INTERVAL_H, SNAPSHOT_MAX_AGE_S } from '../lib/cache';
 import { PHASE_TW_HALF_WIDTH, PHASE_TW_MID, SNOW_LEVEL_OFFSET_M, snowToLiquidRatio } from '../lib/physics';
 import { DEFAULT_PARAMS } from '../lib/snowpack';
@@ -67,6 +67,7 @@ export function About() {
       <ul className="list-disc pl-5">
         <li>Starts from the station's latest reading (and its SWE if the station measures it; otherwise a seasonal bulk density).</li>
         <li>Forcing is taken at the station's own coordinates and elevation, not the resort's, so the projection is comparable with that station's history.</li>
+        <li>From a SNODAS point (below) it starts from the modelled depth and SWE, with forcing at the band itself; those inputs aren't in the snapshot and are fetched when the point is picked.</li>
         <li>
           Layered model, hourly: new snow at fresh-snow density; each layer settles toward {DEFAULT_PARAMS.rhoMaxDry} kg/m³ when dry and {DEFAULT_PARAMS.rhoMaxWet} kg/m³ when wet (plus overburden), e-folding in about {DEFAULT_PARAMS.settleTauH} h at 0 °C and more slowly when colder;
           degree-day melt ({DEFAULT_PARAMS.ddfByMonth[11]}–{DEFAULT_PARAMS.ddfByMonth[4]} mm/°C/day by month) and rain-on-snow melt.
@@ -81,6 +82,40 @@ export function About() {
         <li>Each comparison uses one station's own record — never mixed with resort-reported depths.</li>
       </ul>
 
+      <h2>Modelled snowpack: SNODAS (US resorts)</h2>
+      <ul className="list-disc pl-5">
+        <li>
+          {SNODAS_ABOUT} The Snowpack tab offers it at every band of {RESORTS.filter((r) => SNODAS_RESORTS.includes(r.id)).map((r) => r.short).join(', ')} as
+          extra choices marked "modelled (SNODAS)". The default is always a measurement station, every SNODAS value is labelled modelled, and SNODAS
+          appears nowhere else on the site.
+        </li>
+        <li>
+          Values: snow depth (product 1036) and snow water equivalent (product 1034) at 06:00 UTC, 10 pm PST the evening before, about two hours
+          before the SNOTEL stations' midnight reading for the same date. Each point reads the one 30-arc-second (about 1 km) cell that contains the
+          band's coordinates; SNODAS estimates the cell, so its terrain is not the band's elevation.
+        </li>
+        <li>
+          Source files: NSIDC's masked daily archive (data set G02158), 16-bit big-endian integers in millimetres. No-data cells (−9999) and
+          clipped values (32,767, where SWE runs away at some high-elevation cells) are dropped. The grid moved by 5% of a cell on 2013-10-01; each
+          file's own header places the cell, and every resort point stays in the same cell across that shift.
+        </li>
+        <li>
+          History: seasons from {SNODAS_FIRST_SEASON}–{String(SNODAS_FIRST_SEASON + 1).slice(2)} on, Oct 1 – Jun 30, filled by a manually run
+          backfill; the scheduled job adds each new day. NSIDC advises against SNODAS before October 2004, when routine assimilation began. Until the
+          history is in, the tab shows this season alone and says so. A SNODAS point is compared only with its own modelled history, never with
+          station measurements.
+        </li>
+        <li>
+          Known limits: it is model output, not an observation. NOHRSC's erroneous zeros of 2014-10-09 to 2019-10-10 affect cells along coasts and
+          lakes, not these {SNODAS_POINTS.length} points (they hold valid values before 2014-10-09, which the affected cells don't).
+        </li>
+        <li>
+          Citation: {SNODAS_CITATION.slice(0, SNODAS_CITATION.indexOf(SNODAS_DOI))}
+          <a className="underline" href={SNODAS_DOI}>{SNODAS_DOI}</a>
+          {SNODAS_CITATION.slice(SNODAS_CITATION.indexOf(SNODAS_DOI) + SNODAS_DOI.length)}
+        </li>
+      </ul>
+
       <h2>Data freshness</h2>
       <ul className="list-disc pl-5">
         <li>
@@ -88,7 +123,7 @@ export function About() {
           snapshot, the dashboard, the Storm tracker at mid-mountain, the last 7 days and each resort's default Snowpack station need no direct calls to Open-Meteo.
         </li>
         <li>
-          A snapshot copy is used until it is {SNAPSHOT_MAX_AGE_S / 3600} hours old. Past that, and for what the snapshot leaves out (Run history, base and summit
+          The same job adds each new SNODAS day (NSIDC posts it around 14:00 UTC), so the modelled points lag by up to a day. A snapshot copy is used until it is {SNAPSHOT_MAX_AGE_S / 3600} hours old. Past that, and for what the snapshot leaves out (Run history, base and summit
           ensembles, some Snowpack stations), the browser asks Open-Meteo directly and caches the answer.
         </li>
       </ul>
@@ -131,6 +166,7 @@ export function About() {
             <b className="text-ink">{r.name}:</b> {r.bands.map((b) => `${b.label} ${fmt.elev(b.elevation)}`).join(', ')}.{' '}
             {r.models.map((m) => MODELS[m].label).join(', ')}. Stations:{' '}
             {STATIONS.filter((s) => s.resortId === r.id).map((s) => `${s.name} (${s.source}, ${fmt.elev(s.elevation)})`).join('; ')}.
+            {SNODAS_RESORTS.includes(r.id) && ' Modelled: SNODAS at each band.'}
           </li>
         ))}
       </ul>

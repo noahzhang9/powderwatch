@@ -1,7 +1,7 @@
 import { useCallback, useMemo, useState, type ReactNode } from 'react';
 import { MODELS } from '../config/models';
 import type { Resort } from '../config/resorts';
-import { stationsFor, type StationDef } from '../config/stations';
+import { SNODAS_ABOUT, snowpackChoicesFor, stationsFor, type StationDef } from '../config/stations';
 import { Chart, baseOption, tipHeader, tipRow, type EChartsCoreOption } from '../components/Chart';
 import { Loading, Notice, RequestError, Section, Seg, Tile } from '../components/ui';
 import { loadScenarios, useEnsembles } from '../hooks/data';
@@ -44,14 +44,18 @@ export function SnowpackView({ resort }: { resort: Resort }) {
   const fmt = useFmt();
   const narrow = useNarrow();
   const stations = stationsFor(resort.id);
-  const [picked, setStationId] = useState<string | null>(null);
+  // Modelled SNODAS points (US resorts) are extra choices after the stations, never the default.
+  const choices = snowpackChoicesFor(resort.id);
+  const modelledChoices = choices.filter((s) => s.modelled);
+  const [picked, setStationId] = useHashParam<string>('station', '', ['', ...choices.map((s) => s.id)]);
   // Default to the first station (preference order) that reported in the last 3 days.
   const defaultId = useAsync(async () => {
     const files = await Promise.all(stations.map((s) => loadStation(s.id)));
     return stations[defaultStationIndex(files, todayIn(resort.tz))].id;
   }, [resort.id]);
-  const stationId = picked ?? defaultId.data ?? stations[0].id;
-  const st = stations.find((s) => s.id === stationId)!;
+  // The default is looked up among this resort's stations: right after a resort switch it may still be the last one's.
+  const st = choices.find((s) => s.id === picked) ?? stations.find((s) => s.id === defaultId.data) ?? stations[0];
+  const stationId = st.id;
   const [variable, setVariable] = useState<Variable>('depthCm');
   const v: Variable = variable === 'sweMm' && !st.swe ? 'depthCm' : variable;
   const [showPrev, setShowPrev] = useState(true);
@@ -111,18 +115,32 @@ export function SnowpackView({ resort }: { resort: Resort }) {
 
   const season = currentSeason(today);
   const kToday = seasonIndex(today)?.k ?? null;
+  const noHistory = clim != null && clim.seasons.length === 0;
+  const hasPrev = !!clim?.bySeason.get(season - 1)?.some(isNum);
+  const yy = String(season + 1).slice(2);
+  const what = v === 'depthCm' ? 'snow depth' : 'snow water equivalent';
 
   return (
     <div className="mt-4">
       <div className="flex flex-wrap items-center gap-3">
-        <label className="text-sm text-ink-2 flex items-center gap-2">
+        {/* Phones: the select drops below its label rather than cutting off "modelled (SNODAS)". */}
+        <label className="text-sm text-ink-2 flex flex-wrap items-center gap-x-2 gap-y-1 max-w-full">
           Station
-          <select className="field" value={stationId} onChange={(e) => setStationId(e.target.value)}>
+          <select className="field max-w-full" value={stationId} onChange={(e) => setStationId(e.target.value)}>
             {stations.map((s) => (
               <option key={s.id} value={s.id}>
                 {s.name} · {fmt.elev(s.elevation)} · {s.source}
               </option>
             ))}
+            {modelledChoices.length > 0 && (
+              <optgroup label="Modelled at the resort (SNODAS)">
+                {modelledChoices.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name} · {fmt.elev(s.elevation)} · modelled (SNODAS)
+                  </option>
+                ))}
+              </optgroup>
+            )}
           </select>
         </label>
         {st.swe ? (
@@ -131,9 +149,11 @@ export function SnowpackView({ resort }: { resort: Resort }) {
           <span className="text-sm text-ink-2">Snow depth</span>
         )}
         <Seg label="Time range" value={range} onChange={setRange} options={[{ value: 'sofar', label: 'Season so far' }, { value: 'full', label: 'Full season' }]} />
-        <label className="text-xs text-ink-2 flex items-center gap-1.5">
-          <input type="checkbox" checked={showPrev} onChange={(e) => setShowPrev(e.target.checked)} /> Last season
-        </label>
+        {(hasPrev || !clim) && (
+          <label className="text-xs text-ink-2 flex items-center gap-1.5">
+            <input type="checkbox" checked={showPrev} onChange={(e) => setShowPrev(e.target.checked)} /> Last season
+          </label>
+        )}
         <label className="text-xs text-ink-2 flex items-center gap-1.5">
           <input type="checkbox" checked={showScenarios} onChange={(e) => setShowScenarios(e.target.checked)} /> Single-model scenarios
         </label>
@@ -141,26 +161,47 @@ export function SnowpackView({ resort }: { resort: Resort }) {
       <StationInfo st={st} resort={resort} clim={clim} file={file.data ?? null} fmt={fmt} />
       {file.error && <Notice tone="error">{file.error.message}</Notice>}
       {!file.data || !clim ? (
-        file.loading ? <Loading what="station history" /> : <Notice tone="error">No data file for this station. Run <code>npm run obs</code>.</Notice>
+        file.loading ? <Loading what={st.modelled ? 'SNODAS history' : 'station history'} /> : <Notice tone="error">No data file for this station. Run <code>npm run obs</code>.</Notice>
       ) : (
         <>
-          <Stats clim={clim} last={last} today={today} projection={projection} fmt={fmt} v={v} stale={stale} ensError={ens.error} />
+          <Stats clim={clim} last={last} today={today} projection={projection} fmt={fmt} v={v} stale={stale} ensError={ens.error} modelled={!!st.modelled} />
           {stale && (
             <Notice tone="warn">
               {last ? `Latest reading is from ${shortDate(last.date)}, too old to start a projection.` : 'No readings this season.'} Climatology is still shown.
             </Notice>
           )}
           {ens.error && <RequestError what="Ensemble" error={ens.error} retry={ens.retry} />}
+          {noHistory && (
+            <Notice>
+              {st.modelled ? (
+                <>
+                  <b className="text-ink">History not yet backfilled.</b> SNODAS values for this point start on {shortDate(file.data.start)}, so there are no normals,
+                  percentiles or last season to compare with yet; they appear once the SNODAS history backfill has run.
+                </>
+              ) : (
+                <>No past season at this station has enough data for normals yet.</>
+              )}
+            </Notice>
+          )}
           <Section
-            title={`${v === 'depthCm' ? 'Snow depth' : 'Snow water equivalent'} at ${st.name}, ${season}–${String(season + 1).slice(2)} season`}
+            title={
+              st.modelled
+                ? `Modelled ${what} at ${resort.short} ${st.inText ?? st.name} (SNODAS), ${season}–${yy} season`
+                : `${what[0].toUpperCase()}${what.slice(1)} at ${st.name}, ${season}–${yy} season`
+            }
             subtitle={
               <>
-                Compared with this station's own history ({clim.seasons.length} seasons). The projection runs {projection ? `${projection.members} ensemble members` : 'the ensembles'} through a settling/melt model from the latest reading;
+                {noHistory
+                  ? `This season's ${st.modelled ? 'modelled values' : 'readings'} only, with no history to compare with yet.`
+                  : st.modelled
+                    ? `Compared with this 1 km cell's own SNODAS history (${clim.seasons.length} seasons): modelled, not measured.`
+                    : `Compared with this station's own history (${clim.seasons.length} seasons).`}{' '}
+                The projection runs {projection ? `${projection.members} ensemble members` : 'the ensembles'} through a settling/melt model from the latest {st.modelled ? 'SNODAS value' : 'reading'};
                 its band is model spread, not a calibrated confidence interval, and beyond 10 days it is low confidence.
               </>
             }
           >
-            <SeasonChart clim={clim} season={season} kToday={kToday} projection={projection} showPrev={showPrev} showScenarios={showScenarios} fmt={fmt} v={v} zoom={range === 'sofar'} narrow={narrow} />
+            <SeasonChart clim={clim} season={season} kToday={kToday} projection={projection} showPrev={showPrev && hasPrev} showScenarios={showScenarios} fmt={fmt} v={v} zoom={range === 'sofar'} narrow={narrow} modelled={!!st.modelled} />
           </Section>
         </>
       )}
@@ -171,11 +212,26 @@ export function SnowpackView({ resort }: { resort: Resort }) {
 function StationInfo({ st, resort, clim, file, fmt }: { st: StationDef; resort: Resort; clim: Climatology | null; file: StationFile | null; fmt: Fmt }) {
   const mid = resort.bands.find((b) => b.key === 'mid')!;
   const d = distanceKm(st, mid);
+  const climNote = clim && clim.seasons.length > 0 && (
+    <>Climatology uses {clim.seasons.length} seasons with ≥80% Nov–May coverage ({clim.seasons[0]}–{clim.seasons.at(-1)! + 1}). </>
+  );
+  if (st.modelled) {
+    return (
+      <div className="text-xs text-ink-2 mt-3 leading-relaxed">
+        <b className="text-ink">{resort.short} {st.inText ?? st.name}</b> (SNODAS, modelled) · {fmt.elev(st.elevation)} · at the band's own coordinates.{' '}
+        {SNODAS_ABOUT} {st.dailyNote} {climNote}
+        {file && <>Data updated {ago(Math.floor(Date.parse(file.updated) / 1000))}. </>}
+        <a className="underline" href={st.url} target="_blank" rel="noreferrer">{st.attribution} ↗</a>
+        {st.caveat && <Notice tone="warn">{st.caveat}</Notice>}
+        <div className="mt-1 text-ink-3">This is a model estimate, not a measurement and not the resort's reported base depth.</div>
+      </div>
+    );
+  }
   return (
     <div className="text-xs text-ink-2 mt-3 leading-relaxed">
       <b className="text-ink">{st.name}</b> ({st.source} {st.sourceId}) · {fmt.elev(st.elevation)} · {d.toFixed(0)} km from {resort.short} mid-mountain.{' '}
       {st.dailyNote}{' '}
-      {clim && clim.seasons.length > 0 && <>Climatology uses {clim.seasons.length} seasons with ≥80% Nov–May coverage ({clim.seasons[0]}–{clim.seasons.at(-1)! + 1}). </>}
+      {climNote}
       {file && <>Station data updated {ago(Math.floor(Date.parse(file.updated) / 1000))}. </>}
       <a className="underline" href={st.url} target="_blank" rel="noreferrer">{st.attribution} ↗</a>
       {st.caveat && <Notice tone="warn">{st.caveat}</Notice>}
@@ -184,11 +240,14 @@ function StationInfo({ st, resort, clim, file, fmt }: { st: StationDef; resort: 
   );
 }
 
-function Stats({ clim, last, today, projection, fmt, v, stale, ensError }: {
+function Stats({ clim, last, today, projection, fmt, v, stale, ensError, modelled }: {
   clim: Climatology; last: { date: string; value: number } | null; today: string; projection: Projection | null; fmt: Fmt; v: Variable; stale: boolean; ensError?: Error;
+  modelled: boolean;
 }) {
   const show = (x: number | null | undefined) => (v === 'depthCm' ? fmt.snow(x) : fmt.water(x));
   if (!last) return null;
+  const noHistory = clim.seasons.length === 0;
+  const noHistoryNote = modelled ? 'no SNODAS history yet' : 'no climatology yet';
   const k = seasonIndex(last.date)?.k ?? null;
   const median = k != null ? clim.p50[k] : null;
   const pct = k != null ? percentileRank(clim, k, last.value) : null;
@@ -197,20 +256,30 @@ function Stats({ clim, last, today, projection, fmt, v, stale, ensError }: {
   const j7 = projection ? projection.ks.findIndex((x, i) => i >= daysBetween(projection.initDate, today) + 6 && x >= 0) : -1;
   return (
     <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3 mt-3">
-      <Tile label={`Measured ${shortDate(last.date)}`} value={show(last.value)} sub={v === 'depthCm' ? 'snow depth' : 'snow water equivalent'} />
+      <Tile
+        label={`${modelled ? 'Modelled' : 'Measured'} ${shortDate(last.date)}`}
+        value={show(last.value)}
+        sub={`${v === 'depthCm' ? 'snow depth' : 'snow water equivalent'}${modelled ? ' · SNODAS' : ''}`}
+      />
       <Tile
         label="vs median for the date"
         value={median != null && median >= 1 ? `${Math.round((100 * last.value) / median)}%` : '—'}
-        sub={median != null ? `median ${show(median)}` : 'no climatology'}
+        sub={median != null ? `median ${show(median)}` : noHistory ? noHistoryNote : 'no climatology'}
       />
-      {clim.seasons.length < 10
-        ? <Tile label="Percentile" value="—" sub={`short record (${clim.seasons.length} seasons) — not enough for percentiles`} />
-        : <Tile label="Percentile" value={pct == null ? '—' : `${Math.round(pct)}th`} sub={`among ${clim.seasons.length} seasons`} />}
-      <Tile
-        label="Typical for"
-        value={!(last.value > 0) || k == null ? '—' : typical != null ? shortDate(seasonDate(2001, typical)) : 'above peak'}
-        sub={!(last.value > 0) || k == null ? 'no snow on the ground' : lag == null ? 'deeper than the median ever gets' : lag === 0 ? 'right on schedule' : lag > 0 ? `${lag} days ahead of normal` : `${-lag} days behind normal`}
-      />
+      {noHistory
+        ? <Tile label="Percentile" value="—" sub={noHistoryNote} />
+        : clim.seasons.length < 10
+          ? <Tile label="Percentile" value="—" sub={`short record (${clim.seasons.length} seasons) — not enough for percentiles`} />
+          : <Tile label="Percentile" value={pct == null ? '—' : `${Math.round(pct)}th`} sub={`among ${clim.seasons.length} seasons`} />}
+      {noHistory ? (
+        <Tile label="Typical for" value="—" sub={noHistoryNote} />
+      ) : (
+        <Tile
+          label="Typical for"
+          value={!(last.value > 0) || k == null ? '—' : typical != null ? shortDate(seasonDate(2001, typical)) : 'above peak'}
+          sub={!(last.value > 0) || k == null ? 'no snow on the ground' : lag == null ? 'deeper than the median ever gets' : lag === 0 ? 'right on schedule' : lag > 0 ? `${lag} days ahead of normal` : `${-lag} days behind normal`}
+        />
+      )}
       <Tile
         label="Projected in 7 days"
         value={projection && j7 >= 0 ? show(projection.p50[j7]) : '—'}
@@ -220,11 +289,16 @@ function Stats({ clim, last, today, projection, fmt, v, stale, ensError }: {
   );
 }
 
-function SeasonChart({ clim, season, kToday, projection, showPrev, showScenarios, fmt, v, zoom, narrow }: {
+function SeasonChart({ clim, season, kToday, projection, showPrev, showScenarios, fmt, v, zoom, narrow, modelled }: {
   clim: Climatology; season: number; kToday: number | null; projection: Projection | null; showPrev: boolean; showScenarios: boolean; fmt: Fmt; v: Variable; zoom: boolean;
   /** Phones: the low-confidence shading loses its text and the projection's end label shortens to its value, so labels don't overprint. */
   narrow: boolean;
+  /** SNODAS: "this season" is a model estimate, and says so. */
+  modelled: boolean;
 }) {
+  /** No past season to build normals from (a SNODAS point before its history is backfilled): no bands, no median. */
+  const noHistory = clim.seasons.length === 0;
+  const thisSeason = modelled ? 'This season (modelled)' : 'This season';
   const conv = useCallback((x: number | null | undefined) => (v === 'depthCm' ? fmt.snowVal(x) : fmt.waterVal(x)), [fmt, v]);
   const unit = v === 'depthCm' ? fmt.snowUnit : fmt.waterUnit;
   const option = useCallback(
@@ -286,24 +360,24 @@ function SeasonChart({ clim, season, kToday, projection, showPrev, showScenarios
             const pj = proj ? proj.ks.indexOf(k) : -1;
             // Keys mirror the marks: same colours and names as the legend above the chart.
             const rows = [
-              cur[k] != null && (kToday == null || k <= kToday) ? tipRow(p.ink1, 'This season', f(conv(cur[k])), p) : '',
+              cur[k] != null && (kToday == null || k <= kToday) ? tipRow(p.ink1, thisSeason, f(conv(cur[k])), p) : '',
               pj >= 0 && proj!.p50[pj] != null ? tipRow(p.proj.line, 'Projection (median)', f(conv(proj!.p50[pj])), p) + tipRow(p.proj.outer, 'Projection 10–90%', `${f(conv(proj!.p10[pj]))} – ${f(conv(proj!.p90[pj]))}`, p, 'band') : '',
               showPrev && prev[k] != null ? tipRow(p.lastSeason, 'Last season', f(conv(prev[k])), p) : '',
-              tipRow(p.ink3, 'Median', f(conv(clim.p50[k])), p, 'dashed'),
+              noHistory ? '' : tipRow(p.ink3, 'Median', f(conv(clim.p50[k])), p, 'dashed'),
               thin ? '' : tipRow(alpha(p.ink3, 0.55), 'Middle half (25–75%)', `${f(conv(clim.p25[k]))} – ${f(conv(clim.p75[k]))}`, p, 'band'),
               thin ? '' : tipRow(alpha(p.ink3, 0.35), '10–90%', `${f(conv(clim.p10[k]))} – ${f(conv(clim.p90[k]))}`, p, 'band'),
-              tipRow(alpha(p.ink3, 0.18), 'Record low–high', `${f(conv(clim.min[k]))} – ${f(conv(clim.max[k]))}`, p, 'band'),
+              noHistory ? '' : tipRow(alpha(p.ink3, 0.18), 'Record low–high', `${f(conv(clim.min[k]))} – ${f(conv(clim.max[k]))}`, p, 'band'),
             ];
             return tipHeader(shortDate(seasonDate(season, k)), p) + rows.join('');
           },
         },
         series: [
-          ...bandPair('range', clim.min, clim.max, alpha(p.ink3, 0.1), 'record high'),
+          ...(noHistory ? [] : bandPair('range', clim.min, clim.max, alpha(p.ink3, 0.1), 'record high')),
           ...(thin ? [] : [...bandPair('p10-90', clim.p10, clim.p90, alpha(p.ink3, 0.16), '90%'), ...bandPair('p25-75', clim.p25, clim.p75, alpha(p.ink3, 0.22), '75%')]),
-          {
+          ...(noHistory ? [] : [{
             type: 'line', name: 'Median', symbol: 'none', lineStyle: { width: 1.5, color: p.ink2, type: 'dashed' }, data: ser(clim.p50), silent: true,
             endLabel: edgeLabel('Median', p.ink2, 600), labelLayout: { moveOverlap: 'shiftY' },
-          },
+          }]),
           ...(showPrev
             ? [{
                 type: 'line', name: 'Last season', symbol: 'none', lineStyle: { width: 2, color: p.lastSeason }, data: ser(prev), silent: true,
@@ -341,11 +415,11 @@ function SeasonChart({ clim, season, kToday, projection, showPrev, showScenarios
               ]
             : []),
           {
-            type: 'line', name: 'This season', symbol: 'none', z: 7, lineStyle: { width: 3, color: p.ink1 }, data: curPts,
-            endLabel: proj ? undefined : { show: true, color: p.ink1, fontSize: 11, fontWeight: 600, formatter: 'This season' },
+            type: 'line', name: thisSeason, symbol: 'none', z: 7, lineStyle: { width: 3, color: p.ink1 }, data: curPts,
+            endLabel: proj ? undefined : { show: true, color: p.ink1, fontSize: 11, fontWeight: 600, formatter: thisSeason },
             markPoint: proj && lastCur ? {
               silent: true, symbol: 'circle', symbolSize: 7, itemStyle: { color: p.ink1, borderColor: p.surface, borderWidth: 1.5 },
-              label: { show: true, position: 'top', distance: 8, color: p.ink1, fontSize: 11, fontWeight: 600, formatter: 'This season' },
+              label: { show: true, position: 'top', distance: 8, color: p.ink1, fontSize: 11, fontWeight: 600, formatter: thisSeason },
               data: [{ coord: lastCur }],
             } : undefined,
             markLine: kToday != null ? {
@@ -362,18 +436,20 @@ function SeasonChart({ clim, season, kToday, projection, showPrev, showScenarios
         ],
       };
     },
-    [clim, season, kToday, projection, showPrev, showScenarios, conv, fmt, unit, zoom, narrow],
+    [clim, season, kToday, projection, showPrev, showScenarios, conv, fmt, unit, zoom, narrow, noHistory, thisSeason],
   );
   return (
     <>
-      <SeasonLegend showPrev={showPrev} showProjection={!!projection} showScenarios={showScenarios} season={season} thin={clim.seasons.length < 10} />
-      <Chart option={option} height={380} ariaLabel="Seasonal snowpack versus history with projection" />
+      <SeasonLegend showPrev={showPrev} showProjection={!!projection} showScenarios={showScenarios} season={season} thin={clim.seasons.length < 10} noHistory={noHistory} modelled={modelled} />
+      <Chart option={option} height={380} ariaLabel={modelled ? 'Modelled seasonal snowpack (SNODAS) with projection' : 'Seasonal snowpack versus history with projection'} />
     </>
   );
 }
 
 /** Legend that mirrors each mark: line keys for lines, filled keys for bands. */
-function SeasonLegend({ showPrev, showProjection, showScenarios, season, thin }: { showPrev: boolean; showProjection: boolean; showScenarios: boolean; season: number; thin: boolean }) {
+function SeasonLegend({ showPrev, showProjection, showScenarios, season, thin, noHistory, modelled }: {
+  showPrev: boolean; showProjection: boolean; showScenarios: boolean; season: number; thin: boolean; noHistory: boolean; modelled: boolean;
+}) {
   const line = (color: string, width: number) => <span aria-hidden style={{ width: 18, height: width, background: color, display: 'inline-block', borderRadius: 1 }} />;
   const band = (opacity: number) => <span aria-hidden style={{ width: 14, height: 10, background: 'var(--ink-3)', opacity, display: 'inline-block', borderRadius: 2 }} />;
   const item = (key: ReactNode, label: string) => (
@@ -381,12 +457,16 @@ function SeasonLegend({ showPrev, showProjection, showScenarios, season, thin }:
   );
   return (
     <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-ink-2 mb-2" aria-label="Chart legend">
-      {item(line('var(--ink-1)', 3), `This season (${season}–${String(season + 1).slice(2)})`)}
+      {item(line('var(--ink-1)', 3), `This season${modelled ? ', modelled' : ''} (${season}–${String(season + 1).slice(2)})`)}
       {showProjection && item(<span aria-hidden className="flex items-center">{line('var(--proj-line)', 3)}<span style={{ width: 10, height: 10, marginLeft: 2, background: 'var(--proj-band-outer)', borderRadius: 2 }} /></span>, 'Projection: median and 10–90% of members')}
       {showPrev && item(line('var(--last-season)', 2), `Last season (${season - 1}–${String(season).slice(2)})`)}
-      {item(<span aria-hidden style={{ width: 18, height: 0, borderTop: '2px dashed var(--ink-3)', display: 'inline-block' }} />, 'Median')}
-      {thin ? <span className="text-ink-3">Short record: percentile bands hidden</span> : <>{item(band(0.5), 'Middle half of seasons (25–75%)')}{item(band(0.3), '10–90%')}</>}
-      {item(band(0.15), 'Record low–high')}
+      {noHistory ? null : (
+        <>
+          {item(<span aria-hidden style={{ width: 18, height: 0, borderTop: '2px dashed var(--ink-3)', display: 'inline-block' }} />, 'Median')}
+          {thin ? <span className="text-ink-3">Short record: percentile bands hidden</span> : <>{item(band(0.5), 'Middle half of seasons (25–75%)')}{item(band(0.3), '10–90%')}</>}
+          {item(band(0.15), 'Record low–high')}
+        </>
+      )}
       {showScenarios && <span className="text-ink-3">Thin coloured lines: single-model scenarios (labelled)</span>}
     </div>
   );
