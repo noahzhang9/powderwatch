@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect } from 'react';
 import { RESORTS, resortById } from './config/resorts';
 import { href, useRoute } from './hooks/useRoute';
 import { usePrefs } from './lib/prefs';
@@ -17,17 +17,6 @@ export function App() {
   const resort = parts[0] === 'resort' ? resortById(parts[1] ?? '') : undefined;
   const tab = resort ? (TABS.find((t) => t.id === parts[2]) ?? TABS[0]) : undefined;
   const qs = query.toString();
-  const nav = useRef<HTMLElement>(null);
-
-  // On phones the resort nav scrolls sideways: keep the current page's link in view.
-  useEffect(() => {
-    const el = nav.current;
-    const cur = el?.querySelector<HTMLElement>('[aria-current="page"]');
-    if (!el || !cur || el.scrollWidth <= el.clientWidth) return;
-    const pad = 16;
-    if (cur.offsetLeft - pad < el.scrollLeft) el.scrollLeft = cur.offsetLeft - pad;
-    else if (cur.offsetLeft + cur.offsetWidth + pad > el.scrollLeft + el.clientWidth) el.scrollLeft = cur.offsetLeft + cur.offsetWidth + pad - el.clientWidth;
-  }, [resort?.id, parts[0]]);
 
   useEffect(() => {
     document.title = resort && tab ? `${resort.short} · ${tab.label} — PowderWatch` : parts[0] === 'about' ? 'Methods — PowderWatch' : 'PowderWatch';
@@ -51,10 +40,9 @@ export function App() {
           <a href={href()} className="font-semibold text-lg tracking-tight flex items-center gap-2">
             <span aria-hidden>❄</span> PowderWatch
           </a>
-          {/* Phones: logo and settings share the first row; the nav gets a full-width row that scrolls sideways. */}
+          {/* Phones: logo and settings share the first row; the nav gets the full width below and wraps, so every link stays in view. */}
           <nav
-            ref={nav}
-            className="relative order-last sm:order-none w-[calc(100%+2rem)] sm:w-auto -mx-4 px-4 sm:mx-0 sm:px-0 flex gap-4 overflow-x-auto whitespace-nowrap text-sm text-ink-2"
+            className="order-last sm:order-none w-full sm:w-auto flex flex-wrap gap-x-4 gap-y-1 whitespace-nowrap text-sm text-ink-2"
             aria-label="Resorts"
           >
             {RESORTS.map((r) => (
