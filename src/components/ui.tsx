@@ -78,7 +78,8 @@ export function SnapshotOnlyBanner() {
         <b className="text-ink">Snapshot-only preview</b>
         {info.loading ? ' · reading the local snapshot…' : info.data ? (
           <>
-            {' '}· forecasts from the local snapshot taken {t == null ? 'at an unknown time' : <>{ago(t)} ({taken})</>}, {info.data.entries} requests
+            {' '}· forecasts from the local snapshot taken {t == null ? 'at an unknown time' : <>{ago(t)}<span className="hidden sm:inline"> ({taken})</span></>}
+            <span className="hidden sm:inline">, {info.data.entries} requests</span>
             {t != null && nowUnix() - t > SNAPSHOT_MAX_AGE_S ? ', older than the live site would use' : ''}
           </>
         ) : ' · no local snapshot found (.cache/fc/ is empty)'}
