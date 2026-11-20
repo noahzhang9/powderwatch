@@ -1,6 +1,6 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useMemo, useState, type CSSProperties, type ReactNode } from 'react';
 import { MODELS, NBM } from '../config/models';
-import type { BandKey, Resort } from '../config/resorts';
+import type { Band, BandKey, Resort } from '../config/resorts';
 import { bandInText } from '../config/resorts';
 import { Chart, baseOption, tipHeader, tipRow, type EChartsCoreOption } from '../components/Chart';
 import { Disclosure, Lazy, Loading, ModelChip, Notice, RequestError, Section, Seg } from '../components/ui';
@@ -9,9 +9,9 @@ import { useNarrow } from '../hooks/useNarrow';
 import { useHashParam } from '../hooks/useRoute';
 import { cumulativePlume, dailyDistributions } from '../lib/ensemble';
 import { dailyCentres, dailyPhase, lastValidTime, type DerivedHourly } from '../lib/forecast';
-import { slotColor, type ChartPalette } from '../lib/palette';
-import { useFmt, type Fmt } from '../lib/prefs';
-import { isNum } from '../lib/stats';
+import { alpha, slotColor, type ChartPalette } from '../lib/palette';
+import { useFmt, usePrefs, type Fmt } from '../lib/prefs';
+import { isNum, rangeAcross, type Series } from '../lib/stats';
 import { dayLabel, localDate, localHourLabel, nowUnix, todayIn } from '../lib/time';
 import { RecentSection } from './RecentSection';
 import { DailyLegend, DailySnowChart, PhaseGustStrip, RainStrip, nbmSnowOn } from './storm/Daily';
@@ -169,15 +169,8 @@ export function StormView({ resort }: { resort: Resort }) {
             onToggle={(o) => setMore(o ? '1' : '0')}
           >
             <div id={RUN_TABLE_ID} className="scroll-mt-4"><RunChangeTable rc={runChange} fmt={fmt} /></div>
-            <Section
-              title="Freezing level & snow level"
-              subtitle="Thin lines: each model's freezing level (0 °C). Thick line: blended snow level, solid while precipitating. Rules: this resort's elevation bands."
-            >
-              <LevelsChart data={data} visible={visible} resort={resort} fmt={fmt} />
-            </Section>
-            <Section title={`Temperature at ${bandInText(band)}`} subtitle="Model 2 m temperature downscaled to the band elevation.">
-              <TempChart data={data} visible={visible} tz={resort.tz} fmt={fmt} />
-            </Section>
+            <LevelsSection data={data} visible={visible} resort={resort} fmt={fmt} />
+            <TempSection data={data} visible={visible} band={band} tz={resort.tz} fmt={fmt} />
             <EnsembleSection ens={ens.data} loading={ens.loading} error={undefined} data={data} now={now} band={band} resort={resort} fmt={fmt} />
             <Lazy><RecentSection resort={resort} band={band} /></Lazy>
           </Disclosure>
@@ -235,11 +228,76 @@ function CumulativeChart({ data, visible, now, tz, fmt, rawSnow }: {
   return <Chart option={option} height={300} ariaLabel="Cumulative snowfall by model" />;
 }
 
-function LevelsChart({ data, visible, resort, fmt }: { data: BandForecast; visible: DerivedHourly[]; resort: Resort; fmt: Fmt }) {
+/**
+ * The hourly charts under More detail lead with the blend and a band spanning the models shown,
+ * lowest to highest at each hour (with a handful of models, percentiles would only interpolate
+ * between them). "Each model" adds one line per model in its colour. The model chips choose which
+ * models feed the band and the lines; the blend is always every model's, as on the rest of the page.
+ */
+const spreadAlpha = (dark: boolean) => (dark ? 0.32 : 0.22);
+const spreadFill = (p: ChartPalette) => alpha(p.ink3, spreadAlpha(p.dark));
+/** Opacity of the snow level in dry hours (chart line and legend key). */
+const DRY_ALPHA = 0.25;
+
+/** The band as two stacked lines: an invisible lower edge, then the (upper − lower) height, filled. */
+function spreadSeries(name: string, time: number[], lo: Series, hi: Series, fill: string) {
+  const common = { type: 'line', stack: name, stackStrategy: 'all', symbol: 'none', silent: true, connectNulls: false, z: 1, lineStyle: { opacity: 0 } };
+  return [
+    { ...common, name: `${name} lower`, data: time.map((t, i) => [t * 1000, lo[i]]) },
+    { ...common, name, areaStyle: { color: fill, opacity: 1 }, data: time.map((t, i) => [t * 1000, lo[i] == null || hi[i] == null ? null : hi[i]! - lo[i]!]) },
+  ];
+}
+
+/** Every series is built on the blend's hours, so a tooltip's data index is the hour index. */
+type AxisParams = { dataIndex: number }[];
+const tipTime = (unix: number, tz: string) => new Date(unix * 1000).toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', timeZone: tz });
+/** Sort key for a possibly missing value (missing last). */
+const sortVal = (v: number | null | undefined) => (isNum(v) ? v : -Infinity);
+
+/** "Each model" switch for a More detail chart: off by default. */
+function EachModelToggle({ on, onChange }: { on: boolean; onChange: (on: boolean) => void }) {
+  return (
+    <label className="btn text-xs" title="Draw each model's own line, in its colour. The model chips above choose which models are drawn and which feed the shaded range.">
+      <input type="checkbox" checked={on} onChange={(e) => onChange(e.target.checked)} style={{ width: 12, height: 12, margin: 0 }} />
+      Each model
+    </label>
+  );
+}
+
+/** Legend under a More detail chart; each key mirrors its mark. */
+function SpreadLegend({ items }: { items: { key: ReactNode; label: string }[] }) {
+  return (
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-ink-2 mt-2" style={{ paddingLeft: 52 }} aria-label="Legend">
+      {items.map((x) => <span key={x.label} className="flex items-center gap-1.5">{x.key}{x.label}</span>)}
+    </div>
+  );
+}
+
+const lineKey = (style: CSSProperties) => <span aria-hidden style={{ width: 16, display: 'inline-block', ...style }} />;
+/** The band's fill as a legend swatch (the same mix the chart uses). */
+const bandKey = (dark: boolean) => (
+  <span aria-hidden style={{ width: 12, height: 10, background: `color-mix(in srgb, var(--ink-3) ${spreadAlpha(dark) * 100}%, transparent)`, borderRadius: 2, display: 'inline-block' }} />
+);
+/** Short segments in the first few shown models' colours, for "each model's line". */
+const modelsKey = (models: DerivedHourly[]) => (
+  <span aria-hidden className="inline-flex gap-0.5">
+    {models.slice(0, 3).map((m) => <span key={m.model.id} style={{ width: 6, height: 2, background: `var(--s${m.model.slot})`, display: 'inline-block' }} />)}
+  </span>
+);
+
+function LevelsSection({ data, visible, resort, fmt }: { data: BandForecast; visible: DerivedHourly[]; resort: Resort; fmt: Fmt }) {
+  const [lines, setLines] = useState(false);
+  const { dark } = usePrefs();
+  const shown = useMemo(() => visible.filter((m) => m.fzl.some(isNum)), [visible]);
+  const range = useMemo(() => rangeAcross(shown.map((m) => m.fzl)), [shown]);
   const option = useCallback(
     (p: ChartPalette): EChartsCoreOption => {
       const base = baseOption(p) as Record<string, unknown>;
-      const pts = (time: number[], s: (number | null)[]) => time.map((t, i) => [t * 1000, fmt.elevVal(s[i])] as [number, number | null]);
+      const b = data.blend;
+      const conv = (s: Series) => s.map((v) => fmt.elevVal(v));
+      const pts = (s: Series) => b.time.map((t, i) => [t * 1000, fmt.elevVal(s[i])] as [number, number | null]);
+      const wet = (i: number) => (b.precip[i] ?? 0) >= 0.3;
+      const faint = alpha(p.ink1, DRY_ALPHA);
       return {
         ...base,
         grid: { left: 52, right: 16, top: 16, bottom: 28 },
@@ -247,81 +305,172 @@ function LevelsChart({ data, visible, resort, fmt }: { data: BandForecast; visib
         yAxis: { ...(base.yAxis as object), type: 'value', name: fmt.elevUnit, min: 0, nameTextStyle: { color: p.ink3 } },
         tooltip: {
           ...(base.tooltip as object),
-          formatter: (params: { seriesName: string; value: [number, number | null]; color: string }[]) =>
-            tipHeader(new Date(params[0]?.value[0]).toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', timeZone: resort.tz }), p) +
-            params
-              .filter((x) => x.value?.[1] != null)
-              .map((x) => tipRow(x.seriesName.startsWith('Snow level') ? p.ink1 : x.color, x.seriesName, `${Math.round(x.value[1]!).toLocaleString()} ${fmt.elevUnit}`, p))
-              .join(''),
+          formatter: (params: AxisParams) => {
+            const i = params[0]?.dataIndex;
+            if (i == null || b.time[i] == null) return '';
+            const rows = [
+              isNum(b.fzl[i]) ? tipRow(p.ink2, 'freezing level, blend', fmt.elev(b.fzl[i]), p, 'dashed') : '',
+              isNum(range.lo[i]) ? tipRow(spreadFill(p), `freezing level, range of ${range.n[i]} models`, fmt.elevRange(range.lo[i], range.hi[i]), p, 'band') : '',
+              ...(lines
+                ? shown
+                  .filter((m) => isNum(m.fzl[i]))
+                  .sort((x, y) => sortVal(y.fzl[i]) - sortVal(x.fzl[i]))
+                  .map((m) => tipRow(slotColor(p, m.model.slot), `${m.model.label} freezing level`, fmt.elev(m.fzl[i]), p))
+                : []),
+              isNum(b.snowLevel[i]) ? tipRow(wet(i) ? p.ink1 : faint, wet(i) ? 'snow level, blend' : 'snow level, blend (dry hour)', fmt.elev(b.snowLevel[i]), p) : '',
+            ];
+            return tipHeader(tipTime(b.time[i], resort.tz), p) + rows.join('');
+          },
         },
         series: [
-          ...visible.map((m) => ({
-            type: 'line', name: `${m.model.label} freezing level`, showSymbol: false, connectNulls: false,
-            lineStyle: { width: 1.5, color: slotColor(p, m.model.slot) }, itemStyle: { color: slotColor(p, m.model.slot) },
-            data: pts(m.time, m.fzl),
-          })),
+          ...spreadSeries('Freezing level range', b.time, conv(range.lo), conv(range.hi), spreadFill(p)),
+          ...(lines
+            ? shown.map((m) => ({
+              type: 'line', name: `${m.model.label} freezing level`, showSymbol: false, connectNulls: false, z: 2,
+              lineStyle: { width: 1.5, color: slotColor(p, m.model.slot) }, itemStyle: { color: slotColor(p, m.model.slot) },
+              data: pts(m.fzl),
+            }))
+            : []),
+          {
+            type: 'line', name: 'Freezing level (blend)', showSymbol: false, connectNulls: false, z: 3,
+            lineStyle: { width: 2, color: p.ink2, type: 'dashed' }, itemStyle: { color: p.ink2 },
+            data: pts(b.fzl),
+          },
           {
             // Faint everywhere; solid only while it is precipitating, when snow level matters.
             type: 'line', name: 'Snow level, dry hours', showSymbol: false, z: 4, silent: true,
-            lineStyle: { width: 2, color: p.ink1, opacity: 0.25 }, itemStyle: { color: p.ink1 }, tooltip: { show: false },
-            data: pts(data.blend.time, data.blend.snowLevel),
+            lineStyle: { width: 2, color: faint }, itemStyle: { color: faint },
+            data: pts(b.snowLevel),
           },
           {
             type: 'line', name: 'Snow level (blend)', showSymbol: false, z: 5, connectNulls: false,
             lineStyle: { width: 3.5, color: p.ink1 }, itemStyle: { color: p.ink1 },
-            data: pts(data.blend.time, data.blend.snowLevel.map((v, i) => ((data.blend.precip[i] ?? 0) >= 0.3 ? v : null))),
+            data: pts(b.snowLevel.map((v, i) => (wet(i) ? v : null))),
             markLine: {
-              silent: true, symbol: 'none',
+              // Above every line (markLine's own z defaults to 5), so the snow level never covers a label.
+              silent: true, symbol: 'none', z: 6,
               lineStyle: { color: p.ink3, type: 'solid', width: 1 },
               label: {
                 color: p.ink2, fontSize: 11, position: 'insideStartTop', formatter: (x: { name: string }) => x.name,
                 backgroundColor: p.surface, padding: [1, 3], borderRadius: 2,
               },
               // The lowest band's label sits under its line, so bands a few hundred metres apart don't overprint.
-              data: resort.bands.map((b) => ({
-                yAxis: fmt.elevVal(b.elevation), name: `${b.label} ${fmt.elev(b.elevation)}`,
-                ...(b.elevation === Math.min(...resort.bands.map((x) => x.elevation)) ? { label: { position: 'insideStartBottom' } } : {}),
+              data: resort.bands.map((bd) => ({
+                yAxis: fmt.elevVal(bd.elevation), name: `${bd.label} ${fmt.elev(bd.elevation)}`,
+                ...(bd.elevation === Math.min(...resort.bands.map((x) => x.elevation)) ? { label: { position: 'insideStartBottom' } } : {}),
               })),
             },
           },
         ],
       };
     },
-    [data, visible, resort, fmt],
+    [data, shown, range, lines, resort, fmt],
   );
-  return <Chart option={option} height={300} ariaLabel="Freezing level and snow level by model" />;
+  return (
+    <Section
+      title="Freezing level & snow level"
+      subtitle="Freezing level (0 °C) and snow level blended across all models. Shading: the lowest to highest freezing level of the models selected above, hour by hour. Rules: this resort's elevation bands."
+      right={<EachModelToggle on={lines} onChange={setLines} />}
+    >
+      <Chart
+        option={option}
+        height={300}
+        ariaLabel={`Freezing level and snow level: blend${shown.length >= 2 ? `, with the range of ${shown.length} models` : ''}${lines ? ', and each model' : ''}`}
+      />
+      <SpreadLegend
+        items={[
+          { key: lineKey({ height: 0, borderTop: '2px dashed var(--ink-2)' }), label: 'freezing level, blend' },
+          ...(shown.length >= 2 ? [{ key: bandKey(dark), label: `freezing level, range of ${shown.length} models` }] : []),
+          ...(lines && shown.length ? [{ key: modelsKey(shown), label: "each model's freezing level (colours as the chips)" }] : []),
+          { key: lineKey({ height: 3.5, background: 'var(--ink-1)', borderRadius: 1 }), label: 'snow level, blend, while precipitating' },
+          { key: lineKey({ height: 2, background: `color-mix(in srgb, var(--ink-1) ${DRY_ALPHA * 100}%, transparent)` }), label: 'snow level, dry hours' },
+        ]}
+      />
+    </Section>
+  );
 }
 
-function TempChart({ data, visible, tz, fmt }: { data: BandForecast; visible: DerivedHourly[]; tz: string; fmt: Fmt }) {
+function TempSection({ data, visible, band, tz, fmt }: { data: BandForecast; visible: DerivedHourly[]; band: Band; tz: string; fmt: Fmt }) {
+  const [lines, setLines] = useState(false);
+  const { dark } = usePrefs();
+  const shown = useMemo(() => visible.filter((m) => m.tC.some(isNum)), [visible]);
+  const range = useMemo(() => rangeAcross(shown.map((m) => m.tC)), [shown]);
   const option = useCallback(
     (p: ChartPalette): EChartsCoreOption => {
       const base = baseOption(p) as Record<string, unknown>;
+      const b = data.blend;
+      const conv = (s: Series) => s.map((v) => fmt.tempVal(v));
+      const deg = (c: number) => fmt.tempVal(c)!.toFixed(0);
+      const temp = (c: number) => `${deg(c)}${fmt.tempUnit}`;
+      // "−5 to 2 °C" reads better than "−5–2 °C".
+      const tempRange = (lo: number, hi: number) => `${deg(lo)}${fmt.tempVal(lo)! < 0 ? ' to ' : '–'}${deg(hi)}${fmt.tempUnit}`;
       return {
         ...base,
         xAxis: { ...(base.xAxis as object), type: 'time' },
         yAxis: { ...(base.yAxis as object), type: 'value', name: fmt.tempUnit, nameTextStyle: { color: p.ink3 } },
         tooltip: {
           ...(base.tooltip as object),
-          formatter: (params: { seriesName: string; value: [number, number | null]; color: string }[]) =>
-            tipHeader(new Date(params[0]?.value[0]).toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', timeZone: tz }), p) +
-            params.filter((x) => x.value?.[1] != null).sort((a, b) => b.value[1]! - a.value[1]!)
-              .map((x) => tipRow(x.color, x.seriesName, `${x.value[1]!.toFixed(0)}${fmt.tempUnit}`, p)).join(''),
+          formatter: (params: AxisParams) => {
+            const i = params[0]?.dataIndex;
+            if (i == null || b.time[i] == null) return '';
+            const rows = [
+              isNum(b.tC[i]) ? tipRow(p.ink1, 'blend', temp(b.tC[i]!), p) : '',
+              isNum(range.lo[i]) && isNum(range.hi[i]) ? tipRow(spreadFill(p), `range of ${range.n[i]} models`, tempRange(range.lo[i]!, range.hi[i]!), p, 'band') : '',
+              ...(lines
+                ? shown
+                  .filter((m) => isNum(m.tC[i]))
+                  .sort((x, y) => sortVal(y.tC[i]) - sortVal(x.tC[i]))
+                  .map((m) => tipRow(slotColor(p, m.model.slot), m.model.label, temp(m.tC[i]!), p))
+                : []),
+            ];
+            return tipHeader(tipTime(b.time[i], tz), p) + rows.join('');
+          },
         },
-        series: visible.map((m, idx) => ({
-          type: 'line', name: m.model.label, showSymbol: false,
-          lineStyle: { width: 1.5, color: slotColor(p, m.model.slot) }, itemStyle: { color: slotColor(p, m.model.slot) },
-          data: m.time.map((t, i) => [t * 1000, fmt.tempVal(m.tC[i])]),
-          markLine: idx === 0 ? {
-            silent: true, symbol: 'none', lineStyle: { color: p.ink3, type: 'solid', width: 1 },
-            label: { color: p.ink2, fontSize: 11, formatter: 'freezing', position: 'insideEndTop' },
-            data: [{ yAxis: fmt.units === 'imperial' ? 32 : 0 }],
-          } : undefined,
-        })),
+        series: [
+          ...spreadSeries('Temperature range', b.time, conv(range.lo), conv(range.hi), spreadFill(p)),
+          ...(lines
+            ? shown.map((m) => ({
+              type: 'line', name: m.model.label, showSymbol: false, connectNulls: false, z: 2,
+              lineStyle: { width: 1.5, color: slotColor(p, m.model.slot) }, itemStyle: { color: slotColor(p, m.model.slot) },
+              data: b.time.map((t, i) => [t * 1000, fmt.tempVal(m.tC[i])]),
+            }))
+            : []),
+          {
+            type: 'line', name: 'Blend', showSymbol: false, connectNulls: false, z: 3,
+            lineStyle: { width: 2.5, color: p.ink1 }, itemStyle: { color: p.ink1 },
+            data: b.time.map((t, i) => [t * 1000, fmt.tempVal(b.tC[i])]),
+            markLine: {
+              // Above the lines (markLine's own z defaults to 5), with a backing so its label stays legible.
+              silent: true, symbol: 'none', z: 6, lineStyle: { color: p.ink3, type: 'solid', width: 1 },
+              label: { color: p.ink2, fontSize: 11, formatter: 'freezing', position: 'insideEndTop', backgroundColor: p.surface, padding: [1, 3], borderRadius: 2 },
+              data: [{ yAxis: fmt.units === 'imperial' ? 32 : 0 }],
+            },
+          },
+        ],
       };
     },
-    [data, visible, tz, fmt],
+    [data, shown, range, lines, tz, fmt],
   );
-  return <Chart option={option} height={240} ariaLabel="Temperature by model" />;
+  return (
+    <Section
+      title={`Temperature at ${bandInText(band)}`}
+      subtitle="Model 2 m temperature downscaled to the band elevation, blended across all models. Shading: the lowest to highest of the models selected above, hour by hour."
+      right={<EachModelToggle on={lines} onChange={setLines} />}
+    >
+      <Chart
+        option={option}
+        height={240}
+        ariaLabel={`Temperature: blend${shown.length >= 2 ? `, with the range of ${shown.length} models` : ''}${lines ? ', and each model' : ''}`}
+      />
+      <SpreadLegend
+        items={[
+          { key: lineKey({ height: 2.5, background: 'var(--ink-1)', borderRadius: 1 }), label: 'blend' },
+          ...(shown.length >= 2 ? [{ key: bandKey(dark), label: `range of ${shown.length} models` }] : []),
+          ...(lines && shown.length ? [{ key: modelsKey(shown), label: 'each model (colours as the chips)' }] : []),
+        ]}
+      />
+    </Section>
+  );
 }
 
 function DailyTable({ data, tz, fmt, nbm }: { data: BandForecast; tz: string; fmt: Fmt; nbm: NbmForecast | null }) {

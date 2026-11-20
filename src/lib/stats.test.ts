@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { cumulative, exceedance, familyWeights, quantile, weightedMean, weightedQuantile } from './stats';
+import { cumulative, exceedance, familyWeights, quantile, rangeAcross, weightedMean, weightedQuantile } from './stats';
 
 describe('stats', () => {
   it('quantile matches linear interpolation', () => {
@@ -23,5 +23,13 @@ describe('stats', () => {
   });
   it('cumulative stops at end of data', () => {
     expect(cumulative([1, null, 2, null])).toEqual([1, 1, 3, null]);
+  });
+  it('range across series skips gaps and needs two values by default', () => {
+    const r = rangeAcross([[1, -4, null, 5], [3, 2, 7], [2, null, null, NaN]]);
+    expect(r.lo).toEqual([1, -4, null, null]);
+    expect(r.hi).toEqual([3, 2, null, null]);
+    expect(r.n).toEqual([3, 2, 1, 1]);
+    expect(rangeAcross([[4, null]], 1)).toEqual({ lo: [4, null], hi: [4, null], n: [1, 0] });
+    expect(rangeAcross([])).toEqual({ lo: [], hi: [], n: [] });
   });
 });

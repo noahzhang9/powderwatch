@@ -125,8 +125,8 @@ Candidates not yet added:
   - Measured: new snow where the station reports it (SLF, MeteoSwiss); otherwise depth change plus water gained.
   - Modelled: the same physics applied to the models' short-range output at the station's location and elevation, which is the first step towards Phase 4 verification.
   - Source day boundaries are aligned to within about 6 h.
-- **Freezing level vs. snow level:** freezing level per model, blended snow level, and horizontal rules at the resort's bands.
-- **Temperature** at the selected band, per model.
+- **Freezing level vs. snow level:** the blended freezing level over a band spanning the lowest to highest of the models selected with the chips, the blended snow level (solid while precipitating), and horizontal rules at the resort's bands. An "Each model" toggle, off by default, adds each model's line in its colour.
+- **Temperature** at the selected band: the blend over the same kind of band, with the same "Each model" toggle.
 - **Model chips:** each chip toggles a model and shows its run time, publish delay and data horizon.
 - **Compare with official guidance** (US resorts; off by default, `official=1` in the URL): the daily chart gains NBM's daily snowfall as a short dark bar on each day, with its own legend entry (and run time), a tooltip row and a table column; and a "WPC official chances" table follows "Chance of snow totals", with each WPC day's period in local time and the issue time. With the toggle off, nothing about either is shown or requested.
 - **Totals:**

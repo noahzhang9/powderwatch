@@ -87,6 +87,34 @@ export function cumulative(values: Num[]): (number | null)[] {
 }
 
 /**
+ * Lowest and highest value across aligned series at each index, and how many series have a
+ * value there. Both ends are null where fewer than `minCount` series have one, so a single
+ * series never draws a zero-width range.
+ */
+export function rangeAcross(series: Num[][], minCount = 2): { lo: Series; hi: Series; n: number[] } {
+  const len = series.reduce((m, s) => Math.max(m, s.length), 0);
+  const lo: Series = [];
+  const hi: Series = [];
+  const n: number[] = [];
+  for (let i = 0; i < len; i++) {
+    let a = Infinity;
+    let b = -Infinity;
+    let k = 0;
+    for (const s of series) {
+      const v = s[i];
+      if (!isNum(v)) continue;
+      k++;
+      if (v < a) a = v;
+      if (v > b) b = v;
+    }
+    n.push(k);
+    lo.push(k >= minCount ? a : null);
+    hi.push(k >= minCount ? b : null);
+  }
+  return { lo, hi, n };
+}
+
+/**
  * Family-balanced weights: each family present gets equal total weight, split
  * evenly among its members that have a value. Prevents a 51-member ensemble
  * (or two variants of one centre's model) from dominating a blend.
