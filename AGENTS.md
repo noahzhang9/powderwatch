@@ -83,6 +83,18 @@ If parity drifts, the cache silently stops working, and visits fall back to live
 
 **Station depths are not resort base depths.** The UI must always label them as measurements at a named station and elevation.
 
+## UI principle: don't overwhelm the user
+
+The site stays calm and scannable as data sources are added. A new feature that doesn't fit these rules goes behind a choice, not onto a default view.
+
+- **Dashboard: one glance per resort.** Depth vs normal, the next 3 and 7 days, the best day. A new source may add at most a one-word badge to a card.
+- **New data sources are opt-in.** Benchmark sources (NOAA NBM, WPC probabilities, SNODAS, satellite snow cover) go behind a toggle or an extra choice. Never add a new line or panel to a default view.
+- **One main question per screen.** Supporting material sits under one clearly labelled **More detail** disclosure, closed by default, keyboard-accessible, with its state in the URL hash query (`more=1`).
+  - Storm tracker: "how much snow, and do the models agree?" Open by default: the band/view controls, the headline tiles, the daily snowfall chart with its rain and phase/gust strips and legend, "Chance of snow totals", and a one-line run-to-run summary. Under More detail: the full run-change table, freezing level & snow level, temperature, the ensemble plume, and the last 7 days measured vs modelled.
+  - Run history: the run-by-run trend chart and its summary. Under More detail: storm evolution by run and the run table.
+- **Collapsed panels request nothing until opened.** Mount them only when the disclosure opens (`Disclosure` in `src/components/ui.tsx`), and keep below-the-fold ones in `Lazy`. A panel's requests stay in the snapshot plan if they were there, so opening it doesn't go live; the default screen's requests must stay what `planSnapshot` covers.
+- **Explanations live in hovers, expanders and the Methods page.** Charts default to their simplest form; extra series (single-model scenarios, Open-Meteo's raw snowfall) start switched off behind a toggle.
+
 ## Chart and UI conventions
 
 - **Colour follows the model.** Each model has a fixed categorical slot (`models.ts`), never re-assigned by rank or filter. The palette is validated for colour-vision deficiency; the light and dark values in `src/index.css` are chosen separately, not inverted.
