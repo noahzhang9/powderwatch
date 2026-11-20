@@ -12,6 +12,7 @@ import { PREVIOUS_RUN_LEADS, previousRunsUrl, type OmResponse, type RunMeta } fr
 import { splitPrecip } from '../src/lib/physics';
 import { SCENARIO_MODELS, metaIdOf, pointOf } from '../src/lib/requests';
 import { addDays, localDate, localMidnightUnix } from '../src/lib/time';
+import type { WpcFile } from '../src/lib/wpc';
 import { snowpackRequests } from './snapshot-plan';
 import {
   CYCLE_HOURS, CYCLE_MODELS, RECORD_DAYS, RECORD_THRESHOLDS_CM, buildBackfillRecords, buildVerificationRecord, chooseCycle, cycleOf, firstDay,
@@ -105,6 +106,16 @@ const station = (id: string, lastDaysAgo: number): StationFile => {
   };
 };
 
+const WPC_FILE: WpcFile = {
+  v: 1, fetchedAt: NOW_S, thresholdsIn: [4, 8, 12],
+  days: [
+    { start: '2026-11-20T00:00Z', end: '2026-11-21T00:00Z', issued: '2026-11-19T20:29Z' },
+    { start: '2026-11-21T00:00Z', end: '2026-11-22T00:00Z', issued: '2026-11-19T20:42Z' },
+    null,
+  ],
+  points: { crystal: { lat: 46.931, lon: -121.49, cat: [[2, 1, 0], [1, 0, null], [0, 0, 0]] } },
+};
+
 function buildCrystal() {
   // Morse Lake reported yesterday; Corral Pass too, but this run skipped its requests; Cayuse Pass is silent.
   const obs = { 'snotel-642': station('snotel-642', 1), 'snotel-418': station('snotel-418', 1), 'snotel-1085': station('snotel-1085', 30) };
@@ -115,6 +126,7 @@ function buildCrystal() {
     meta: allAt('2026-11-20T00:00Z', { gfs_global: '2026-11-20T06:00Z', ncep_hrrr_conus: '2026-11-20T07:00Z' }),
     obs,
     json: (u) => (skip.has(u) ? undefined : fakeResponse(u)),
+    wpc: WPC_FILE,
     resorts: [CRYSTAL],
   })!;
 }
@@ -164,6 +176,11 @@ describe('verification record', () => {
     expect(mid.nbm!.rain).toBeUndefined();
     expect(rec.runs.ncep_nbm_conus).toBe('2026-11-20T00:00Z');
     expect(morse.nbm).toBeUndefined();
+  });
+
+  it("archives WPC's Day 1–3 categories and periods at the mid band", () => {
+    expect(mid.wpc).toEqual({ days: WPC_FILE.days, cat: WPC_FILE.points.crystal.cat });
+    expect(morse.wpc).toBeUndefined();
   });
 
   it("archives each station's own point where the snapshot has it, and says why it skipped the others", () => {
@@ -266,6 +283,7 @@ describe.skipIf(!python)('validate_verification.py', () => {
     ['a short series', (r: Record<string, unknown>) => (r.points as { days: string[] }[])[0].days.pop()],
     ['a cycle that differs from the file name', (r: Record<string, unknown>) => (r.cycle = '2026-11-21T00Z')],
     ['an unknown skip reason', (r: Record<string, unknown>) => ((r.skipped as { reason: string }[])[0].reason = 'because')],
+    ['a WPC category out of range', (r: Record<string, unknown>) => ((r.points as { wpc: { cat: number[][] } }[])[0].wpc.cat[0][0] = 7)],
   ])('rejects %s', (_label, f) => {
     const res = run('--check', tampered(f));
     expect(res.status).toBe(1);

@@ -150,6 +150,28 @@ def ensemble(obj, n, t, where):
     chances(win['pge'], w, t, f'{where}.win.pge')
 
 
+WPC_DAYS = 3
+WPC_THRESHOLDS = 3
+WPC_STAMP = re.compile(r'\d{4}-\d{2}-\d{2}T\d{2}:\d{2}Z')
+
+
+def wpc(obj, where):
+    """WPC Day 1-3 categories (0-3, or null) for >= 4/8/12 in, with each day's period."""
+    keys(obj, ('days', 'cat'), (), where)
+    need(isinstance(obj['days'], list) and len(obj['days']) == WPC_DAYS, f'{where}.days')
+    for i, d in enumerate(obj['days']):
+        if d is None:
+            continue
+        keys(d, ('start', 'end', 'issued'), (), f'{where}.days[{i}]')
+        for k in ('start', 'end', 'issued'):
+            text(d[k], WPC_STAMP, f'{where}.days[{i}].{k}')
+    need(isinstance(obj['cat'], list) and len(obj['cat']) == WPC_DAYS, f'{where}.cat')
+    for i, row in enumerate(obj['cat']):
+        need(isinstance(row, list) and len(row) == WPC_THRESHOLDS, f'{where}.cat[{i}]')
+        for c in row:
+            need(c is None or (isinstance(c, int) and not isinstance(c, bool) and 0 <= c <= 3), f'{where}.cat[{i}]: {c!r}')
+
+
 def dates(x, n, where):
     need(isinstance(x, list) and len(x) == n, f'{where}: expected {n} dates')
     for d in x:
@@ -190,7 +212,7 @@ def check_cycle(rec, stem):
     seen = set()
     for i, p in enumerate(rec['points']):
         where = f'points[{i}]'
-        keys(p, ('resort', 'kind', 'id', 'lat', 'lon', 'elev', 'tz', 'days', 'models', 'ens'), ('blend', 'nbm'), where)
+        keys(p, ('resort', 'kind', 'id', 'lat', 'lon', 'elev', 'tz', 'days', 'models', 'ens'), ('blend', 'nbm', 'wpc'), where)
         point_head(p, where)
         need((p['resort'], p['id']) not in seen, f'{where}: duplicate point')
         seen.add((p['resort'], p['id']))
@@ -201,6 +223,9 @@ def check_cycle(rec, stem):
         if 'nbm' in p:
             need(p['kind'] == 'mid', f'{where}: only mid points have NBM')
             fields(p['nbm'], DAYS, f'{where}.nbm', MODEL_FIELDS)
+        if 'wpc' in p:
+            need(p['kind'] == 'mid', f'{where}: only mid points have WPC chances')
+            wpc(p['wpc'], f'{where}.wpc')
         models(p['models'], DAYS, f'{where}.models')
         ensemble(p['ens'], DAYS, t, f'{where}.ens')
     need(isinstance(rec['skipped'], list) and len(rec['skipped']) <= MAX_POINTS, 'skipped')

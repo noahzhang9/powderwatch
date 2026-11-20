@@ -3,7 +3,7 @@ import { Fragment } from 'react';
 import { MODELS } from '../../config/models';
 import type { Band, Resort } from '../../config/resorts';
 import { bandInText } from '../../config/resorts';
-import { RequestError, Section, Tile } from '../../components/ui';
+import { Loading, Notice, RequestError, Section, Tile } from '../../components/ui';
 import { loadRunChange, type BandForecast, type EnsembleSet } from '../../hooks/data';
 import { useAsync } from '../../hooks/useAsync';
 import { CHANCE_HORIZONS_H, CHANCE_THRESHOLDS_CM, probabilityAtLeast, probabilityFzlAbove, windowQuantiles, windowTotals } from '../../lib/ensemble';
@@ -13,7 +13,9 @@ import type { Fmt } from '../../lib/prefs';
 import { NOT_IN_SNAPSHOT, isNotInSnapshot } from '../../lib/cache';
 import { RUN_CHANGE_OFFSET_S, runChangeModels } from '../../lib/requests';
 import { isNum } from '../../lib/stats';
-import { ago, runLabel } from '../../lib/time';
+import { ago, localHourLabel, nowUnix, runLabel } from '../../lib/time';
+import { WPC_ATTRIBUTION, WPC_CATEGORY_LABEL, WPC_PAGE, WPC_THRESHOLDS_IN, type WpcCategory, type WpcFile, type WpcPeriod } from '../../lib/wpc';
+import { midBand } from '../../lib/requests';
 import { sinceLastVisit } from '../../lib/visits';
 
 function modelWindow(m: DerivedHourly, from: number, hours: number, key: 'snowCm' | 'omSnowCm' = 'snowCm') {
@@ -144,6 +146,92 @@ export function Chances({ ens, now, resort, fmt }: { ens?: EnsembleSet; now: num
           </tbody>
         </table>
       </div>
+    </Section>
+  );
+}
+
+/** Shade for a WPC category, on the same scale as the ensemble table's chances (each range's middle). */
+const WPC_SHADE = [0.05, 0.25, 0.55, 0.85];
+const wpcUnix = (iso: string) => Date.parse(iso.replace('Z', ':00Z')) / 1000;
+
+function WpcCell({ c }: { c: WpcCategory | null }) {
+  const pr = c == null ? null : WPC_SHADE[c];
+  return (
+    <td
+      title={c == null ? "unknown: WPC's service didn't answer for this layer" : undefined}
+      style={{
+        background: pr == null || c === 0 ? undefined : `color-mix(in srgb, var(--snow-3) ${Math.round(pr * 70)}%, transparent)`,
+        color: pr != null && pr > 0.55 ? 'var(--snow-ink-3)' : undefined,
+      }}
+    >
+      {c == null ? '—' : WPC_CATEGORY_LABEL[c]}
+    </td>
+  );
+}
+
+/** "Thu 4 PM – Fri 4 PM" in the resort's time; wraps between the two ends on narrow screens. */
+function WpcPeriodLabel({ d, tz }: { d: WpcPeriod | null; tz: string }) {
+  if (!d) return <>period not published</>;
+  const at = (iso: string) => localHourLabel(wpcUnix(iso), tz).replace(',', '');
+  return (
+    <>
+      <span className="whitespace-nowrap">{at(d.start)} –</span> <span className="whitespace-nowrap">{at(d.end)}</span>
+      {wpcUnix(d.end) <= nowUnix() ? ' (past)' : ''}
+    </>
+  );
+}
+
+/**
+ * NOAA/NWS WPC's Day 1–3 chances of heavy snow at mid-mountain ("Compare with official guidance"). WPC days
+ * are its own 24 h periods, labelled in local time, not the calendar days or windows of the ensemble table.
+ */
+export function WpcChances({ wpc, loading, error, resort, fmt }: {
+  wpc: WpcFile | null | undefined; loading: boolean; error?: Error; resort: Resort; fmt: Fmt;
+}) {
+  const pt = wpc?.points[resort.id];
+  const issued = wpc?.days.map((d) => d?.issued).filter((x): x is string => x != null).sort().at(-1);
+  const issuedLabel = issued
+    ? new Date(wpcUnix(issued) * 1000).toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: resort.tz })
+    : null;
+  return (
+    <Section
+      title="WPC official chances"
+      subtitle={
+        <>
+          <a className="underline" href={WPC_PAGE}>{WPC_ATTRIBUTION}</a> winter outlook at {bandInText(midBand(resort))} ({fmt.elev(midBand(resort).elevation)})
+          {issuedLabel ? `, issued ${issuedLabel}` : ''}. Each WPC day is its own 24-hour period (local times below), not a calendar day,
+          so it doesn't line up with the days or windows above. WPC publishes ranges, not exact chances.
+        </>
+      }
+    >
+      {error && <RequestError what="WPC" error={error} />}
+      {!wpc || !pt ? (
+        loading ? <Loading what="WPC chances" /> : !error && <Notice>WPC's chances aren't in this snapshot: the scheduled job couldn't reach NOAA's service, or this build has no snapshot.</Notice>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="data">
+            <thead>
+              <tr>
+                <th>At least</th>
+                {wpc.days.map((d, i) => (
+                  <th key={i} style={{ whiteSpace: 'normal' }}>
+                    Day {i + 1}
+                    <div className="font-normal text-ink-3 text-[11px]"><WpcPeriodLabel d={d} tz={resort.tz} /></div>
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {WPC_THRESHOLDS_IN.map((inches, k) => (
+                <tr key={inches}>
+                  <td>{fmt.snow(inches * 2.54, 0)}</td>
+                  {pt.cat.map((row, d) => <WpcCell key={d} c={row[k]} />)}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </Section>
   );
 }

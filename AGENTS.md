@@ -8,7 +8,8 @@ PowderWatch is a static React + TypeScript site (Vite, Tailwind, ECharts). It ha
 
 ```bash
 npm ci                 # install (see "Lockfile" below)
-npm test               # vitest: physics, stats, climatology, snowpack, time zones, snapshot plan/URL parity, cache
+npm test               # vitest: physics, stats, climatology, snowpack, time zones, snapshot plan/URL parity and daily budget, cache,
+                       # verification record + its Python validator, WPC parser
 npm run typecheck
 npm run build          # tsc + vite build → dist/
 npm run preview        # serve dist/ on 127.0.0.1:4173
@@ -39,9 +40,10 @@ For browser checks, use `npm run preview:local`, not a fresh `npm run snapshot`.
 | `src/lib/openmeteo.ts` | Pure URL builders + fetchers for every Open-Meteo request |
 | `src/lib/requests.ts` | Each view's request choices (points, model lists, `pastDays`, …), shared by the views and the snapshot plan |
 | `src/lib/cache.ts` | Fetch cache: memory → IndexedDB → snapshot manifest → live, with priority scheduling and 429 backoff. Snapshot-only builds never go live (`snapshotUse`) |
+| `src/lib/benchmarks.ts`, `src/lib/wpc.ts` | Official guidance: NBM per local day; WPC's parser, static-file format and the browser's validation of it |
 | `src/hooks/data.ts` | `load*` functions and hooks that assemble requests into view data |
 | `src/views/` | Dashboard, Storm tracker (`StormView.tsx`, `storm/`), Run history, Snowpack, Methods (`About.tsx`) |
-| `scripts/` | `fetch-obs.ts` (station ingest), `snapshot-plan.ts` + `snapshot-forecasts.ts` (forecast snapshot), `verification.ts` (verification record builder), `validate_verification.py` (the archive job's validator), `backfill-verification.ts`, `backtest-snowpack.ts` |
+| `scripts/` | `fetch-obs.ts` (station ingest), `snapshot-plan.ts` + `snapshot-forecasts.ts` (forecast snapshot), `fetch-wpc.ts` (WPC chances, called by the snapshot), `verification.ts` (verification record builder), `validate_verification.py` (the archive job's validator), `backfill-verification.ts`, `backtest-snowpack.ts` |
 | `public/data/obs/` | Generated station series (committed by the workflow; never edit by hand) |
 | `.github/workflows/refresh-and-deploy.yml` | Every 4 h + on push to `main`: refresh → commit → build + snapshot → deploy, and archive (verification record → `data/verification`) |
 | `data/verification` branch | Forecast-verification archive (`cycles/YYYY-MM/<cycle>.json`, `backfill/YYYY-MM/<date>.json`). Written only by the `archive` job and the validated backfill; never merged into `main` |
@@ -85,7 +87,8 @@ If parity drifts, the cache silently stops working, and visits fall back to live
 - SLF, BC ASWS and NWAC send no CORS headers, and SLF's terms forbid per-user calls. Fetch them only from `scripts/fetch-obs.ts` on the schedule, never from the browser.
 - NWAC has no public API or licence: links only.
 - NOAA NBM comes through Open-Meteo (`ncep_nbm_conus`, CONUS only, about 11 days, hourly runs), so it needs no new browser host. The snapshot holds it at mid for the `officialGuidance` resorts; other bands are fetched live when the toggle is on.
-- Keep the attribution strings in `stations.ts`, the footer in `App.tsx` and `public/data/NOTICE.md` intact, and update them when adding a source.
+- NOAA/NWS WPC's winter chances are fetched **only by the scheduled job** (`scripts/fetch-wpc.ts`, from the snapshot run): ArcGIS point queries at each US resort's mid band, written as one content-addressed `data/fc/wpc-<hash>.json` named by the manifest's `wpc` entry. The browser reads that same-origin file and nothing else (no live fallback), so the CSP needs no NOAA host and visits make no NOAA calls. A failed query is an unknown cell, never "under 10%"; if nothing usable came back, no file is written and the site says so. The browser validates the file (`parseWpcFile`) like any untrusted input.
+- Keep the attribution strings in `stations.ts` and `wpc.ts` (`WPC_ATTRIBUTION`), the footer in `App.tsx` and `public/data/NOTICE.md` intact, and update them when adding a source.
 - Never commit `dist/`, `.cache/` or snapshot files. Verification records go to the `data/verification` branch only, never `main`.
 
 **Station depths are not resort base depths.** The UI must always label them as measurements at a named station and elevation.
@@ -98,7 +101,7 @@ The site stays calm and scannable as data sources are added. A new feature that 
 - **New data sources are opt-in.** Benchmark sources (NOAA NBM, WPC probabilities, SNODAS, satellite snow cover) go behind a toggle or an extra choice. Never add a new line or panel to a default view.
 - **One main question per screen.** Supporting material sits under one clearly labelled **More detail** disclosure, closed by default, keyboard-accessible, with its state in the URL hash query (`more=1`).
   - Storm tracker: "how much snow, and do the models agree?" Open by default: the band/view controls, the headline tiles, the daily snowfall chart with its rain and phase/gust strips and legend, "Chance of snow totals", and a one-line run-to-run summary. Under More detail: the full run-change table, freezing level & snow level, temperature, the ensemble plume, and the last 7 days measured vs modelled.
-  - "Compare with official guidance" (US resorts; off by default, `official=1` in the hash query) is the one switch for benchmark sources: NOAA NBM's mark on the daily chart, its legend entry, tooltip row and table column. With it off, nothing about them is shown or requested.
+  - "Compare with official guidance" (US resorts; off by default, `official=1` in the hash query) is the one switch for benchmark sources: NOAA NBM's mark on the daily chart, its legend entry, tooltip row and table column, and the "WPC official chances" table beside "Chance of snow totals" (WPC days are labelled as their own 24 h periods). With it off, nothing about them is shown or requested.
   - Run history: the run-by-run trend chart and its summary. Under More detail: storm evolution by run and the run table.
 - **Collapsed panels request nothing until opened.** Mount them only when the disclosure opens (`Disclosure` in `src/components/ui.tsx`), and keep below-the-fold ones in `Lazy`. A panel's requests stay in the snapshot plan if they were there, so opening it doesn't go live; the default screen's requests must stay what `planSnapshot` covers.
 - **Explanations live in hovers, expanders and the Methods page.** Charts default to their simplest form; extra series (single-model scenarios, Open-Meteo's raw snowfall) start switched off behind a toggle.

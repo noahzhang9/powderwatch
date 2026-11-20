@@ -8,6 +8,7 @@ import { Dashboard } from './views/Dashboard';
 import { ResortView, TABS } from './views/ResortView';
 import { About } from './views/About';
 import { ErrorBoundary } from './components/ErrorBoundary';
+import { WPC_ATTRIBUTION, WPC_PAGE } from './lib/wpc';
 
 export function App() {
   const { parts, query } = useRoute();
@@ -85,6 +86,8 @@ export function App() {
       <footer className="max-w-7xl mx-auto px-4 pb-8 text-[11px] text-ink-3 leading-relaxed [&_a]:underline">
         <p>
           Forecasts: <a href="https://open-meteo.com/">Open-Meteo</a> (<a href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0</a>), from ECMWF, NOAA, ECCC, DWD, UK Met Office and MeteoSwiss models.
+          Official guidance (US resorts): NOAA National Blend of Models, via Open-Meteo; winter precipitation outlook from the{' '}
+          <a href={WPC_PAGE}>{WPC_ATTRIBUTION}</a>.
         </p>
         <p className="mt-1">
           Observations: <a href="https://wcc.sc.egov.usda.gov/">USDA NRCS SNOTEL</a>; Data Source: <a href="https://eccc-msc.github.io/open-data/licence/readme_en/">Environment and Climate Change Canada</a>;

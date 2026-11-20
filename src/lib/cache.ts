@@ -149,6 +149,8 @@ export const SNAPSHOT_INTERVAL_H = 4;
 export const SNAPSHOT_MAX_AGE_S = (SNAPSHOT_INTERVAL_H + 0.5) * 3600;
 /** `<url hash>-<content hash>.json`: content-addressed, so a cached copy is never out of date. */
 export const SNAPSHOT_FILE_RE = /^[0-9a-f]{16}-[0-9a-f]{10}\.json$/;
+/** The WPC chances file the job writes next to the snapshot (src/lib/wpc.ts), content-addressed too. */
+export const WPC_FILE_RE = /^wpc-[0-9a-f]{10}\.json$/;
 /** A tab open this long re-reads the manifest once, to pick up the next snapshot. */
 const MANIFEST_RELOAD_MS = 60 * 60 * 1000;
 
@@ -163,6 +165,16 @@ export interface SnapshotManifest {
   /** When the job started, unix seconds. */
   generatedAt: number;
   entries: Record<string, SnapshotEntry>;
+  /** WPC's winter precipitation chances, fetched by the job (never by the browser); absent when that fetch failed. */
+  wpc?: SnapshotEntry;
+}
+
+/** The manifest's WPC file, if it names a plausible one. */
+export function manifestWpc(x: unknown): SnapshotEntry | null {
+  const e = (x as Partial<SnapshotManifest> | null)?.wpc;
+  return e && typeof e.file === 'string' && WPC_FILE_RE.test(e.file) && typeof e.fetchedAt === 'number' && Number.isFinite(e.fetchedAt)
+    ? { file: e.file, fetchedAt: e.fetchedAt }
+    : null;
 }
 
 /** Validates a manifest; anything malformed is treated as "no snapshot". */
@@ -222,6 +234,7 @@ const snapshotBase = () => `${import.meta.env.BASE_URL}${SNAPSHOT_DIR}`;
 interface LoadedManifest {
   entries: Map<string, SnapshotEntry>;
   generatedAt: number | null;
+  wpc: SnapshotEntry | null;
 }
 
 let manifest: { loadedAt: number; data: Promise<LoadedManifest | null> } | null = null;
@@ -235,7 +248,7 @@ function loadManifest(): Promise<LoadedManifest | null> {
         .then((r) => (r.ok ? r.json() : null))
         .then((json: unknown) => {
           const entries = parseManifest(json);
-          return entries && { entries, generatedAt: manifestGeneratedAt(json) };
+          return entries && { entries, generatedAt: manifestGeneratedAt(json), wpc: manifestWpc(json) };
         })
         .catch(() => null), // no snapshot deployed (dev server, first deploy): everything goes live
     };
@@ -249,6 +262,15 @@ const snapshotEntries = async () => (await loadManifest())?.entries ?? null;
 export async function snapshotInfo(): Promise<{ generatedAt: number | null; entries: number } | null> {
   const m = await loadManifest();
   return m && { generatedAt: m.generatedAt, entries: m.entries.size };
+}
+
+/**
+ * The WPC chances file deployed with the snapshot, unvalidated (src/lib/wpc.ts parses it); null when there is
+ * none. Same-origin only: there is no live fallback, so the browser never calls NOAA.
+ */
+export async function snapshotWpc(): Promise<unknown> {
+  const e = (await loadManifest())?.wpc;
+  return e ? fetchSnapshotFile<unknown>(e.file) : null;
 }
 
 async function fetchSnapshotFile<T>(file: string): Promise<T> {

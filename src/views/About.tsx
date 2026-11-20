@@ -7,6 +7,7 @@ import { DEFAULT_PARAMS } from '../lib/snowpack';
 import { CHANCE_THRESHOLDS_CM, SPLIT_HIGH_CM, SPLIT_LOW_CM, SPLIT_MIN_SHARE } from '../lib/ensemble';
 import { PHASE_BAND_M } from '../lib/forecast';
 import { useFmt } from '../lib/prefs';
+import { WPC_ATTRIBUTION, WPC_CATEGORY_LABEL, WPC_THRESHOLDS_IN } from '../lib/wpc';
 import { LOW_CENTRES } from './storm/Daily';
 
 export function About() {
@@ -103,6 +104,12 @@ export function About() {
           chart marks its own snowfall per local day with a short dark bar. It is taken at the band's coordinates on NBM's {NBM.resolutionKm} km grid and
           is not adjusted to the band's elevation.
         </li>
+        <li>
+          {WPC_ATTRIBUTION} (WPC): the chance of at least {WPC_THRESHOLDS_IN.map((t) => fmt.snow(t * 2.54, 0)).join(', ')} of snow in each of its Day 1–3
+          periods, at mid-mountain. WPC publishes ranges ({WPC_CATEGORY_LABEL.join(', ')}) as nested areas on a map; a resort gets the highest range it
+          falls in. Each WPC day is a 24-hour period from 00Z or 12Z, shown in local time, so it doesn't match the calendar days or windows of the
+          ensemble table. The scheduled job reads WPC every {SNAPSHOT_INTERVAL_H} hours (WPC updates twice a day); your browser never contacts NOAA.
+        </li>
       </ul>
 
       <h2>Verification archive</h2>
@@ -112,7 +119,7 @@ export function About() {
           model) and at each station's own coordinates (the snowpack-scenario models), with the ensemble's 10th/50th/90th percentiles and its chances
           for the "Chance of snow totals" thresholds ({CHANCE_THRESHOLDS_CM.imperial.map((t) => fmt.snow(t, 0)).join(', ')}). It reuses the snapshot's
           responses, so it costs no extra Open-Meteo calls, and lives on a separate <code>data/verification</code> branch of the repository.
-          At US resorts it also keeps {NBM.label}'s own forecast at mid.
+          At US resorts it also keeps {NBM.label}'s own forecast and WPC's chances at mid.
         </li>
         <li>Those records are what the verification against station measurements will use. Until then, every chance on this site is model spread.</li>
       </ul>

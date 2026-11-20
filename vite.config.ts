@@ -4,7 +4,7 @@ import { loadEnv } from 'vite';
 import { defineConfig, type Plugin } from 'vitest/config';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
-import { LOCAL_SNAPSHOT_DIR, SNAPSHOT_DIR, SNAPSHOT_FILE_RE, SNAPSHOT_MANIFEST } from './src/lib/cache.ts';
+import { LOCAL_SNAPSHOT_DIR, SNAPSHOT_DIR, SNAPSHOT_FILE_RE, SNAPSHOT_MANIFEST, WPC_FILE_RE } from './src/lib/cache.ts';
 
 const OPEN_METEO = 'https://api.open-meteo.com https://ensemble-api.open-meteo.com https://single-runs-api.open-meteo.com';
 
@@ -39,7 +39,7 @@ function cspMeta(snapshotOnly: boolean): Plugin {
  * Snapshot-only builds: copy the local forecast snapshot (.cache/fc/, written by
  * `npm run snapshot`) into the build output, since `vite build` empties dist/.
  * Build-only, and inactive unless VITE_SNAPSHOT_ONLY=1. Copies only the manifest
- * and content-addressed snapshot files.
+ * and content-addressed snapshot files (Open-Meteo responses and the WPC chances file).
  */
 function localSnapshot(snapshotOnly: boolean): Plugin {
   let root = '';
@@ -59,7 +59,7 @@ function localSnapshot(snapshotOnly: boolean): Plugin {
       }
       const dest = join(outDir, SNAPSHOT_DIR);
       mkdirSync(dest, { recursive: true });
-      const files = readdirSync(src).filter((f) => f === SNAPSHOT_MANIFEST || SNAPSHOT_FILE_RE.test(f));
+      const files = readdirSync(src).filter((f) => f === SNAPSHOT_MANIFEST || SNAPSHOT_FILE_RE.test(f) || WPC_FILE_RE.test(f));
       for (const f of files) copyFileSync(join(src, f), join(dest, f));
       this.info(`copied ${files.length} snapshot files from ${LOCAL_SNAPSHOT_DIR} to ${join(outDir, SNAPSHOT_DIR)}`);
     },

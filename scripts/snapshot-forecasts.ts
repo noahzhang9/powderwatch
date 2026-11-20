@@ -22,6 +22,11 @@
  * `vite build` emptying dist/: `npm run preview:local` builds a snapshot-only
  * site from it without calling Open-Meteo again.
  *
+ * Alongside, it queries NOAA/NWS WPC's winter precipitation chances for the US
+ * resorts (scripts/fetch-wpc.ts) and writes them as one more content-addressed
+ * file, `wpc-<hash>.json`, named by the manifest's `wpc` entry: the browser reads
+ * only that same-origin file and never calls NOAA.
+ *
  * From the same responses (no extra calls) it writes the forecast-verification
  * record for the global cycle this run carries (scripts/verification.ts) to
  * .cache/verification/<cycle>.json, best effort. The workflow uploads it and its
@@ -39,8 +44,10 @@ import { fileURLToPath } from 'node:url';
 import { RESORTS } from '../src/config/resorts';
 import { STATIONS } from '../src/config/stations';
 import {
-  LOCAL_SNAPSHOT_DIR, SNAPSHOT_DIR, SNAPSHOT_FILE_RE, SNAPSHOT_INTERVAL_H, SNAPSHOT_MANIFEST, type SnapshotEntry, type SnapshotManifest,
+  LOCAL_SNAPSHOT_DIR, SNAPSHOT_DIR, SNAPSHOT_FILE_RE, SNAPSHOT_INTERVAL_H, SNAPSHOT_MANIFEST, WPC_FILE_RE, type SnapshotEntry, type SnapshotManifest,
 } from '../src/lib/cache';
+import type { WpcFile } from '../src/lib/wpc';
+import { fetchWpc } from './fetch-wpc';
 import type { StationFile } from '../src/lib/obs';
 import { parseRunMeta, parseSurface, runMetaUrl, type OmResponse, type RunMeta, type SurfaceHourly } from '../src/lib/openmeteo';
 import {
@@ -65,6 +72,8 @@ const RETRIES = 4;
 /** Stop starting requests after this long so the deploy is never held up; what arrived is still written. */
 const DEADLINE_MS = 7 * 60_000;
 const REQUEST_TIMEOUT_MS = 90_000;
+/** WPC requests start only within this long of the run's start. */
+const WPC_DEADLINE_MS = 3 * 60_000;
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const sha = (s: string) => createHash('sha256').update(s).digest('hex');
@@ -166,7 +175,7 @@ async function writeSnapshot(dir: string, files: Map<string, string>, manifest: 
   const tmp = join(dir, `${SNAPSHOT_MANIFEST}.tmp`);
   await writeFile(tmp, JSON.stringify(manifest));
   await rename(tmp, join(dir, SNAPSHOT_MANIFEST));
-  for (const f of await readdir(dir)) if (SNAPSHOT_FILE_RE.test(f) && !files.has(f)) await rm(join(dir, f));
+  for (const f of await readdir(dir)) if ((SNAPSHOT_FILE_RE.test(f) || WPC_FILE_RE.test(f)) && !files.has(f)) await rm(join(dir, f));
 }
 
 function parsed<T>(r: Result | undefined, f: (json: never) => T): T | undefined {
@@ -185,6 +194,12 @@ async function main() {
   }
   const obs = await readObs();
   const results = new Map<string, Result>();
+  // NOAA WPC, in parallel (another host, so outside the Open-Meteo pacing). It can never fail the snapshot, and
+  // its own shorter deadline keeps a hung service from holding up the snapshot's write (it normally takes ~2 s).
+  const wpcRun = fetchWpc({ ua: UA, deadline: t0 + WPC_DEADLINE_MS }).catch((err: Error) => {
+    console.warn(`::warning::WPC chances not fetched: ${err.message}`);
+    return { file: null, requests: 0, failed: 0 };
+  });
 
   // Stage 1: run metadata and the mid-band forecasts, which decide the run-change requests.
   const stage1 = planSnapshot({ nowS, obs }).filter((g) => g.priority <= PRIORITY.firstPaint);
@@ -237,7 +252,18 @@ async function main() {
   }
   for (const g of skipped) console.log(`– ${g.label.padEnd(44)} skipped: over the per-run budget (est. ${fmtCost(groupCost(g))})`);
 
+  const wpc = await wpcRun;
+  const wpcFile: WpcFile | null = wpc.file;
   const manifest: SnapshotManifest = { version: 1, generatedAt: nowS, entries };
+  if (wpcFile) {
+    const body = JSON.stringify(wpcFile);
+    const file = `wpc-${sha(body).slice(0, 10)}.json`;
+    if (!WPC_FILE_RE.test(file)) throw new Error(`bad WPC file name ${file}`);
+    files.set(file, body);
+    manifest.wpc = { file, fetchedAt: wpcFile.fetchedAt };
+  }
+  console.log(`${wpcFile ? '✓' : '✗'} ${'NOAA WPC winter chances (US resorts, mid)'.padEnd(44)} ${wpc.requests - wpc.failed}/${wpc.requests} requests` +
+    (wpcFile ? `  days ${wpcFile.days.map((d) => (d ? `${d.start}–${d.end.slice(11)}` : '?')).join(', ')}` : '  (none written: the site says so)'));
   await writeSnapshot(OUT, files, manifest);
   if (resolve(LOCAL_COPY) !== resolve(OUT)) {
     // Best effort: the local copy must never fail a deploy.
@@ -254,7 +280,7 @@ async function main() {
       if (!memo.has(u)) memo.set(u, parsed(results.get(u), (d: OmResponse) => d));
       return memo.get(u);
     };
-    const rec = buildVerificationRecord({ nowS, meta, obs, json });
+    const rec = buildVerificationRecord({ nowS, meta, obs, json, wpc: wpcFile });
     if (rec) {
       const body = JSON.stringify(rec);
       await mkdir(VERIFICATION_OUT, { recursive: true });

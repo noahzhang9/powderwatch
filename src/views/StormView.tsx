@@ -4,7 +4,7 @@ import type { BandKey, Resort } from '../config/resorts';
 import { bandInText } from '../config/resorts';
 import { Chart, baseOption, tipHeader, tipRow, type EChartsCoreOption } from '../components/Chart';
 import { Disclosure, Lazy, Loading, ModelChip, Notice, RequestError, Section, Seg } from '../components/ui';
-import { useBandForecast, useEnsembles, useNbm, useRunMeta, type BandForecast, type EnsembleSet, type NbmForecast } from '../hooks/data';
+import { useBandForecast, useEnsembles, useNbm, useRunMeta, useWpc, type BandForecast, type EnsembleSet, type NbmForecast } from '../hooks/data';
 import { useNarrow } from '../hooks/useNarrow';
 import { useHashParam } from '../hooks/useRoute';
 import { cumulativePlume, dailyDistributions } from '../lib/ensemble';
@@ -15,7 +15,7 @@ import { isNum } from '../lib/stats';
 import { dayLabel, localDate, localHourLabel, nowUnix, todayIn } from '../lib/time';
 import { RecentSection } from './RecentSection';
 import { DailyLegend, DailySnowChart, PhaseGustStrip, RainStrip, nbmSnowOn } from './storm/Daily';
-import { Chances, RunChangeSummary, RunChangeTable, RunsRow, Totals, useRunChange } from './storm/Panels';
+import { Chances, RunChangeSummary, RunChangeTable, RunsRow, Totals, WpcChances, useRunChange } from './storm/Panels';
 
 const BANDS = ['base', 'mid', 'summit'] as const;
 const VIEWS = ['daily', 'cumulative'] as const;
@@ -39,6 +39,7 @@ export function StormView({ resort }: { resort: Resort }) {
   const meta = useRunMeta(resort.models);
   const nbm = useNbm(resort, band, official);
   const nbmData = official ? nbm.data ?? null : null;
+  const wpc = useWpc(official);
   const [hidden, setHidden] = useState<Set<string>>(new Set());
   const [rawSnow, setRawSnow] = useState(false);
   const [showTable, setShowTable] = useState(false);
@@ -104,10 +105,10 @@ export function StormView({ resort }: { resort: Resort }) {
         <Seg label="Snowfall view" value={mode} onChange={setMode} options={[{ value: 'daily', label: 'Daily' }, { value: 'cumulative', label: 'Cumulative' }]} />
         {resort.officialGuidance && (
           <label
-            className="btn"
+            className="btn text-xs"
             title={`Adds NOAA's own forecasts for comparison: the ${NBM.long}'s snowfall on the daily chart, and the Weather Prediction Center's chances of heavy snow. Neither joins the blend.`}
           >
-            <input type="checkbox" checked={official} onChange={(e) => setOfficial(e.target.checked ? '1' : '0')} />
+            <input type="checkbox" checked={official} onChange={(e) => setOfficial(e.target.checked ? '1' : '0')} style={{ width: 12, height: 12, margin: 0 }} />
             {narrow ? 'Official guidance' : 'Compare with official guidance'}
           </label>
         )}
@@ -162,6 +163,7 @@ export function StormView({ resort }: { resort: Resort }) {
           </Section>
           {ens.error && <RequestError what="Ensemble" error={ens.error} retry={ens.retry} />}
           <Chances ens={ens.data} now={now} resort={resort} fmt={fmt} />
+          {official && <WpcChances wpc={wpc.data} loading={wpc.loading} error={wpc.error} resort={resort} fmt={fmt} />}
           <Disclosure
             label="More detail"
             hint="Run-to-run table · freezing & snow level · temperature · ensemble plume · last 7 days measured vs modelled"

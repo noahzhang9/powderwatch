@@ -6,7 +6,8 @@ It compares deterministic models, regional high-res models and ensembles from
 [Open-Meteo](https://open-meteo.com/), runs them all through one set of snow physics, and tracks
 station snow depth against each station's own history, with an ensemble-driven snowpack projection.
 At the US resorts, "Compare with official guidance" adds NOAA's own products as opt-in benchmarks:
-the National Blend of Models' snowfall on the Storm tracker's daily chart.
+the National Blend of Models' snowfall on the Storm tracker's daily chart, and the Weather
+Prediction Center's Day 1–3 chances of heavy snow.
 
 Design, data sources, methods and roadmap: [docs/proposal.md](docs/proposal.md). Conventions and invariants for contributors and coding agents: [AGENTS.md](AGENTS.md).
 
@@ -36,7 +37,7 @@ and a banner shows how old the snapshot is. The deploy workflow never sets the f
 
 ```bash
 npm test                               # unit tests (physics, stats, climatology, snowpack, time zones, snapshot URL parity, cache fallback,
-                                       # verification record and its validator)
+                                       # verification record and its validator, WPC parser, daily snapshot budget)
 npm run typecheck
 npx tsx scripts/backtest-snowpack.ts   # snowpack calibration/backtest against SNOTEL (≈2 min)
 ```
@@ -73,6 +74,9 @@ permissions it needs.
     scheduled runs use about 7,500–7,800 of the free tier's 10,000 a day and leave room for a push
     or manual run. Lower-priority groups are skipped when the budget runs out. A failed or partial
     snapshot never blocks the deploy; the browser fetches whatever is missing.
+  - The same run reads NOAA/NWS WPC's winter chances for the US resorts (`scripts/fetch-wpc.ts`)
+    and writes them as `dist/data/fc/wpc-<hash>.json`, named by the manifest. The browser reads only
+    that same-origin file, so visits never call NOAA and the Content-Security-Policy is unchanged.
 
 ## Forecast-verification archive
 
@@ -134,6 +138,7 @@ dist/data/fc    forecast snapshot (generated at deploy, not committed)
 ## Licence and attribution
 
 Code: MIT (see `LICENSE`). Station data in `public/data/obs/` is processed third-party data under
-each source's own licence — see [`public/data/NOTICE.md`](public/data/NOTICE.md). Forecast data comes
+each source's own licence — see [`public/data/NOTICE.md`](public/data/NOTICE.md), which also covers
+the NOAA benchmarks (NBM, and WPC's chances, which the deployed `data/fc/wpc-*.json` holds in processed form). Forecast data comes
 from [Open-Meteo](https://open-meteo.com/) (CC BY 4.0): the deployed site serves unmodified snapshot
 copies under `data/fc/`, and this repo stores none.

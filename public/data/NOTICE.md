@@ -15,10 +15,18 @@ below for authoritative data.
 | Fionnay (FIO) | MeteoSwiss Open Government Data | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) | Source: MeteoSwiss |
 
 Forecast data shown on the site comes from [Open-Meteo](https://open-meteo.com/) (CC BY 4.0). The
-files under `data/fc/` are unmodified copies of Open-Meteo API responses, refreshed every 4 hours;
+files under `data/fc/` (except `wpc-*.json`, below) are unmodified copies of Open-Meteo API responses, refreshed every 4 hours;
 the browser fetches anything not in them from Open-Meteo directly.
 
-The "Compare with official guidance" benchmark on the Storm tracker shows the NOAA National Blend of
-Models (NBM, US government data) through Open-Meteo, with NBM's own snowfall.
+The "Compare with official guidance" benchmarks on the Storm tracker (US resorts) are US government data:
+
+| Benchmark | Source | Licence / terms | Notice |
+|---|---|---|---|
+| NOAA National Blend of Models (NBM): NBM's own snowfall | NOAA/NWS, through Open-Meteo | US federal government data; Open-Meteo CC BY 4.0 | Open-Meteo |
+| Probabilistic winter precipitation outlook, Day 1–3 chances of ≥ 4, 8 and 12 in | [NOAA/NWS Weather Prediction Center](https://www.wpc.ncep.noaa.gov/wwd/winter_wx.shtml), [ArcGIS service](https://mapservices.weather.noaa.gov/vector/rest/services/precip/wpc_prob_winter_precip/MapServer) | US federal government data | Source: NOAA/NWS Weather Prediction Center |
+
+The `data/fc/wpc-*.json` file is **processed**: the scheduled job queries WPC's polygons at each US
+resort's mid-mountain point and keeps only the probability category there (under 10%, 10–39%,
+40–69%, 70% or more) and each day's valid period and issue time. Use WPC for the authoritative product.
 
 The MIT licence in `LICENSE` covers the PowderWatch source code only, not this data.

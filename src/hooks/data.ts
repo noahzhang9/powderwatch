@@ -5,7 +5,7 @@
  */
 import { ENSEMBLES, NBM } from '../config/models';
 import type { Band, Resort } from '../config/resorts';
-import { NotInSnapshotError, isNotInSnapshot } from '../lib/cache';
+import { NotInSnapshotError, isNotInSnapshot, snapshotWpc } from '../lib/cache';
 import { nbmDaily } from '../lib/benchmarks';
 import { alignMembers, deriveMembers, type MemberSeries } from '../lib/ensemble';
 import { blend, deriveModel, toDaily, type BlendHourly, type DailyRow, type DerivedHourly } from '../lib/forecast';
@@ -14,6 +14,7 @@ import {
 } from '../lib/openmeteo';
 import type { ProfileLevel } from '../lib/physics';
 import { RECENT_SURFACE, SCENARIO_MODELS, hasData, metaIdOf, midBand, pointOf, previousRun, scenarioSurface } from '../lib/requests';
+import { parseWpcFile, type WpcFile } from '../lib/wpc';
 import { useMemo } from 'react';
 import { useAsync } from './useAsync';
 
@@ -160,4 +161,14 @@ export async function loadNbm(resort: Resort, band: Band): Promise<NbmForecast> 
 /** Requests nothing unless `enabled` (the toggle is on and the resort is covered). */
 export function useNbm(resort: Resort, band: Band, enabled: boolean) {
   return useAsync(() => loadNbm(resort, band), [resort.id, band.key], enabled);
+}
+
+/** WPC's winter chances from the file deployed with the snapshot (null: none); never a call to NOAA. */
+export async function loadWpc(): Promise<WpcFile | null> {
+  return parseWpcFile(await snapshotWpc());
+}
+
+/** Reads nothing unless `enabled` (the toggle is on and the resort is covered). */
+export function useWpc(enabled: boolean) {
+  return useAsync(loadWpc, [], enabled);
 }

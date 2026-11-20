@@ -34,6 +34,7 @@ import {
 import { SCENARIO_MODELS, hasData, metaIdOf, midBand, pointOf } from '../src/lib/requests';
 import { round, type Series } from '../src/lib/stats';
 import { addDays, localDate, localMidnightUnix } from '../src/lib/time';
+import type { WpcCategory, WpcFile, WpcPeriod } from '../src/lib/wpc';
 import { midSurfaceUrl, servedDates, snowpackRequests } from './snapshot-plan';
 
 export const RECORD_VERSION = 1;
@@ -143,6 +144,11 @@ export interface PointRecord {
   ens: EnsembleFields | null;
   /** Mid band of US resorts: NOAA NBM's own snowfall, precipitation, temperatures and snow level (no rain field). */
   nbm?: Fields;
+  /**
+   * Mid band of US resorts: WPC's Day 1–3 chance categories (0: < 10%, 1: 10–39%, 2: 40–69%, 3: ≥ 70%) for
+   * ≥ 4/8/12 in, cat[day − 1][threshold], with each WPC day's 24 h period. As fetched in this run.
+   */
+  wpc?: { days: (WpcPeriod | null)[]; cat: (WpcCategory | null)[][] };
 }
 
 export type SkipReason = 'no-projection' | 'not-in-snapshot';
@@ -174,6 +180,8 @@ export interface RecordInput {
   obs: Record<string, StationFile | null>;
   /** A response the snapshot fetched successfully, parsed; undefined if it has none for this URL. */
   json: (url: string) => OmResponse | undefined;
+  /** WPC chances fetched in this run (null: none). */
+  wpc?: WpcFile | null;
   resorts?: Resort[];
 }
 
@@ -292,6 +300,7 @@ export function buildVerificationRecord(input: RecordInput): VerificationRecord 
         models: modelFields(models, days, r.tz),
         ens: ensembleFields(ens.time, ens.members, ens.ids, days, r.tz),
         ...(nbmHourly ? { nbm: dailyFields(nbmDaily({ ...nbmHourly, precip: nonNegative(nbmHourly.precip) }, r.tz), days, r.tz, { rain: false }) } : {}),
+        ...(r.officialGuidance && input.wpc?.points[r.id] ? { wpc: { days: input.wpc.days, cat: input.wpc.points[r.id].cat } } : {}),
       });
     }
 
