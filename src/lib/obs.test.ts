@@ -15,7 +15,14 @@ describe('parseStationFile', () => {
   });
 
   it('fills absent optional series with null', () => {
-    expect(parseStationFile(good, 's1')).toEqual({ ...good, newSnowCm: null });
+    expect(parseStationFile(good, 's1')).toEqual({ ...good, newSnowCm: null, tavgC: null });
+  });
+
+  it('reads the optional mean-temperature series', () => {
+    const withT = { ...good, tavgC: [-3.2, null, 0.5] };
+    expect(parseStationFile(withT, 's1')).toEqual({ ...withT, newSnowCm: null });
+    expect(parseStationFile({ ...good, tavgC: [-3.2] }, 's1')).toBeNull(); // length differs from depthCm
+    expect(parseStationFile({ ...good, tavgC: [-3.2, 'cold', 0] }, 's1')).toBeNull();
   });
 
   it('rejects files that are not this station or not the right shape', () => {

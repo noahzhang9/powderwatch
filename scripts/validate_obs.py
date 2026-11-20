@@ -7,7 +7,8 @@ Run with `python3 -I` by the jobs that hold a write token and run no npm code:
 
 Each incoming file must be `<id>.json` for a file DEST already has (this never creates a file), hold only the
 station-file keys (StationFile in src/lib/obs.ts) with ISO dates, equal-length series and finite numbers within
-bounds, and be at most 2 MB. Raw bytes are never copied: what is written is re-serialised from the parsed values.
+bounds (BOUNDS; the optional mean temperature `tavgC` may be negative), and be at most 2 MB. Raw bytes are
+never copied: what is written is re-serialised from the parsed values.
 
 Modelled SNODAS files (`snodas-*.json`) are merged day by day with the file already in DEST: incoming values
 win where they exist and every other day is kept. Their history comes from the backfill workflow, so a refresh
@@ -27,8 +28,9 @@ DATE = re.compile(r'\d{4}-\d{2}-\d{2}')
 STAMP = re.compile(r'\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z')
 NAME = re.compile(r'[A-Za-z0-9-]+\.json')
 SEASON_DIR = re.compile(r'snodas-20\d\d')
-BOUNDS = {'depthCm': 1500, 'sweMm': 5000, 'newSnowCm': 300}
-ALLOWED = {'id', 'updated', 'start', 'depthCm', 'sweMm', 'newSnowCm', 'lastDepthDate', 'lastSweDate'}
+# Each series' allowed range (lowest, highest). Only depthCm is required.
+BOUNDS = {'depthCm': (0, 1500), 'sweMm': (0, 5000), 'newSnowCm': (0, 300), 'tavgC': (-60, 50)}
+ALLOWED = {'id', 'updated', 'start', 'depthCm', 'sweMm', 'newSnowCm', 'tavgC', 'lastDepthDate', 'lastSweDate'}
 MAX_BYTES = 2_000_000
 MODELLED = 'snodas-'
 # SNODAS's record starts 2003-09-30 (NSIDC G02158).
@@ -63,14 +65,14 @@ def check(f, name):
         if f.get(k) is not None and not (isinstance(f[k], str) and DATE.fullmatch(f[k])):
             raise Rejected(f'bad {k} in {name}')
     lengths = set()
-    for k, hi in BOUNDS.items():
+    for k, (lo, hi) in BOUNDS.items():
         v = f.get(k)
         if v is None and k != 'depthCm':
             continue
         if not isinstance(v, list):
             raise Rejected(f'bad series {k} in {name}')
         for x in v:
-            if x is not None and (isinstance(x, bool) or not isinstance(x, (int, float)) or not 0 <= x <= hi):
+            if x is not None and (isinstance(x, bool) or not isinstance(x, (int, float)) or not lo <= x <= hi):
                 raise Rejected(f'implausible value {x!r} in {k} of {name}')
         lengths.add(len(v))
     if len(lengths) != 1:
@@ -125,16 +127,20 @@ def merge(old, new, name):
         return out
 
     new_snow = series('newSnowCm')
-    return {
+    tavg = series('tavgC')
+    merged = {
         'id': new['id'],
         'updated': max(new['updated'], old['updated']) if old else new['updated'],
         'start': start.isoformat(),
         'depthCm': series('depthCm'),
         'sweMm': series('sweMm') if with_swe else None,
         'newSnowCm': new_snow if any(x is not None for x in new_snow) else None,
-        'lastDepthDate': max(with_depth).isoformat() if with_depth else None,
-        'lastSweDate': max(with_swe).isoformat() if with_swe else None,
     }
+    if any(x is not None for x in tavg):  # the key only when there are values, as scripts/obs-file.ts writes it
+        merged['tavgC'] = tavg
+    merged['lastDepthDate'] = max(with_depth).isoformat() if with_depth else None
+    merged['lastSweDate'] = max(with_swe).isoformat() if with_swe else None
+    return merged
 
 
 def main(argv):

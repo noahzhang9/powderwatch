@@ -6,9 +6,9 @@ import type { StationDef } from '../src/config/stations';
 import type { StationFile } from '../src/lib/obs';
 import { addDays } from '../src/lib/time';
 
-export type Daily = Map<string, { depth?: number; swe?: number; newSnow?: number }>;
+export type Daily = Map<string, { depth?: number; swe?: number; newSnow?: number; tavg?: number }>;
 
-export function setVal(d: Daily, date: string, key: 'depth' | 'swe' | 'newSnow', v: number | null | undefined) {
+export function setVal(d: Daily, date: string, key: 'depth' | 'swe' | 'newSnow' | 'tavg', v: number | null | undefined) {
   if (v == null || !Number.isFinite(v)) return;
   const e = d.get(date) ?? {};
   e[key] = v;
@@ -17,7 +17,7 @@ export function setVal(d: Daily, date: string, key: 'depth' | 'swe' | 'newSnow',
 
 export function fromFile(f: StationFile): Daily {
   const d: Daily = new Map();
-  const put = (arr: (number | null)[] | null | undefined, key: 'depth' | 'swe' | 'newSnow') =>
+  const put = (arr: (number | null)[] | null | undefined, key: 'depth' | 'swe' | 'newSnow' | 'tavg') =>
     arr?.forEach((v, i) => {
       if (v == null) return;
       const date = new Date(Date.parse(`${f.start}T00:00:00Z`) + i * 86_400_000).toISOString().slice(0, 10);
@@ -26,6 +26,7 @@ export function fromFile(f: StationFile): Daily {
   put(f.depthCm, 'depth');
   put(f.sweMm, 'swe');
   put(f.newSnowCm, 'newSnow');
+  put(f.tavgC, 'tavg');
   return d;
 }
 
@@ -40,12 +41,14 @@ export function toFile(st: Pick<StationDef, 'id'>, d: Daily): StationFile {
   const depthCm: (number | null)[] = new Array(n).fill(null);
   const sweMm: (number | null)[] = new Array(n).fill(null);
   const newSnowCm: (number | null)[] = new Array(n).fill(null);
+  const tavgC: (number | null)[] = new Array(n).fill(null);
   for (const [date, v] of d) {
     const i = Math.round((Date.parse(date) - Date.parse(start)) / 86_400_000);
     if (i < 0 || i >= n) continue;
     if (v.depth != null) depthCm[i] = Math.round(v.depth * 10) / 10;
     if (v.swe != null) sweMm[i] = Math.round(v.swe * 10) / 10;
     if (v.newSnow != null) newSnowCm[i] = Math.round(v.newSnow * 10) / 10;
+    if (v.tavg != null) tavgC[i] = Math.round(v.tavg * 10) / 10;
   }
   return {
     id: st.id,
@@ -54,6 +57,8 @@ export function toFile(st: Pick<StationDef, 'id'>, d: Daily): StationFile {
     depthCm,
     sweMm: withSwe.length ? sweMm : null,
     newSnowCm: newSnowCm.some((x) => x != null) ? newSnowCm : null,
+    // Only files with temperatures carry the key, so every other file stays byte for byte as it was.
+    ...(tavgC.some((x) => x != null) ? { tavgC } : {}),
     lastDepthDate: withDepth[withDepth.length - 1] ?? null,
     lastSweDate: withSwe[withSwe.length - 1] ?? null,
   };

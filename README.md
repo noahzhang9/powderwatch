@@ -67,10 +67,13 @@ appears once the last scheduled update is more than 8 hours old.
     fetched before that dated each reading a day early. An incremental run that finds such a file (its
     readings match the fetch one day earlier) fetches that station's full history instead of merging
     into it, so no file mixes the two datings.
-  - **One-time step once `periodRef=START` is on `main`:** **Run workflow** with **full_refresh** ticked,
-    so every station file is rewritten in one run. The workflow's concurrency group keeps one waiting run
-    and cancels it when another is queued, so check that the run's "Fetch observations" log shows `full`
-    lines; if a scheduled run replaced it, dispatch it again.
+  - SNOTEL files also carry `tavgC`, the daily mean temperature (AWDB `TAVG`). An incremental run adds
+    it for its recent window only; older files without it stay valid.
+  - **One-time step once `periodRef=START` and `TAVG` are on `main`:** **Run workflow** with
+    **full_refresh** ticked, so every station file is rewritten in one run, with its temperature
+    history. The workflow's concurrency group keeps one waiting run and cancels it when another is
+    queued, so check that the run's "Fetch observations" log shows `full` lines; if a scheduled run
+    replaced it, dispatch it again.
 - **SNODAS** (`public/data/obs/snodas-*.json`): the same `npm run obs` adds each new day from NSIDC
   (one ~10 MB file a day serves all nine points; days already present are never fetched again).
   History comes from the manual backfill below.

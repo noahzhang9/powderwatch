@@ -353,6 +353,25 @@ describe.skipIf(!python)('validate_obs.py', () => {
     expect([f.start, f.depthCm[2], f.depthCm.at(-1), f.lastDepthDate]).toEqual(['2024-10-01', 1.5, 2, '2026-11-16']);
   });
 
+  it("accepts and bounds a station's mean-temperature series (tavgC), which may be negative", () => {
+    const snotel = { ...file('snotel-1', '2026-11-18', [20, 25, 30], [50, 60, 70]), tavgC: [-12.5, null, 3.1] };
+    const ok = setup({ 'snotel-1.json': file('snotel-1', '2026-11-01', [1], [1]) }, { incoming: { 'snotel-1.json': snotel } });
+    expect(run(join(ok, 'incoming'), join(ok, 'dest')).stderr).toBe('');
+    expect(read(ok, 'snotel-1.json')).toEqual(snotel);
+    const cases: [unknown, RegExp][] = [
+      [[-70, null, 0], /implausible value -70 in tavgC/],
+      [[0, 0, 51], /implausible value 51 in tavgC/],
+      [[0, 0], /lengths differ/],
+      ['cold', /bad series tavgC/],
+    ];
+    for (const [tavgC, msg] of cases) {
+      const root = setup({ 'snotel-1.json': file('snotel-1', '2026-11-01', [1], [1]) }, { incoming: { 'snotel-1.json': { ...snotel, tavgC } } });
+      const r = run(join(root, 'incoming'), join(root, 'dest'));
+      expect(r.status, msg.source).toBe(1);
+      expect(r.stderr).toMatch(msg);
+    }
+  });
+
   it('rejects anything else', () => {
     const ok = file('snodas-x', '2026-11-15', [1], [1]);
     const cases: [string[], Record<string, Record<string, unknown>>, RegExp][] = [

@@ -96,20 +96,31 @@ const cleanDepth = (cm: number) => (cm < 0 ? (cm > -5 ? 0 : NaN) : cm > 1500 ? N
 // ---------------------------------------------------------------- SNOTEL
 /**
  * `periodRef=START` dates each midnight (PST) reading by the day it opens, the convention the site reads
- * (src/lib/recent.ts). AWDB's default (END) dates it by the day it closes, one day earlier.
+ * (src/lib/recent.ts). AWDB's default (END) dates it by the day it closes, one day earlier. TAVG, the day's mean
+ * temperature, is dated by the day it averages either way; it sets the snow ratio of new snow estimated from SWE.
  */
 async function snotel(st: StationDef, since: string | null): Promise<Daily> {
   const today = new Date().toISOString().slice(0, 10);
   const url =
     'https://wcc.sc.egov.usda.gov/awdbRestApi/services/v1/data?' +
-    `stationTriplets=${st.sourceId}&elements=SNWD,WTEQ&duration=DAILY&periodRef=START&beginDate=${since ?? '1978-10-01'}&endDate=${today}`;
+    `stationTriplets=${st.sourceId}&elements=SNWD,WTEQ,TAVG&duration=DAILY&periodRef=START&beginDate=${since ?? '1978-10-01'}&endDate=${today}`;
   const json = JSON.parse(await fetchText(url, { retries: 10 })) as {
     data: { stationElement: { elementCode: string; storedUnitCode: string }; values: { date: string; value: number }[] }[];
   }[];
   const d: Daily = new Map();
   for (const el of json[0]?.data ?? []) {
-    const isDepth = el.stationElement.elementCode === 'SNWD';
-    const toMetric = el.stationElement.storedUnitCode === 'in' ? (isDepth ? 2.54 : 25.4) : 1;
+    const { elementCode: code, storedUnitCode: unit } = el.stationElement;
+    if (code === 'TAVG') {
+      for (const v of el.values) {
+        if (typeof v.value !== 'number') continue;
+        const c = unit === 'degF' ? ((v.value - 32) * 5) / 9 : v.value;
+        // A daily mean outside this is a sensor fault (the records hold −50 °C and +37.7 °C days in Washington).
+        if (c > -45 && c < 35) setVal(d, v.date.slice(0, 10), 'tavg', c);
+      }
+      continue;
+    }
+    const isDepth = code === 'SNWD';
+    const toMetric = unit === 'in' ? (isDepth ? 2.54 : 25.4) : 1;
     for (const v of el.values) {
       const x = v.value * toMetric;
       setVal(d, v.date.slice(0, 10), isDepth ? 'depth' : 'swe', isDepth ? cleanDepth(x) : x < 0 ? 0 : x);
