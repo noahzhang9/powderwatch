@@ -399,10 +399,12 @@ Browser (React + TypeScript + ECharts, static on GitHub Pages)
   ├── /data/obs/*.json  station series and SNODAS pseudo-station series (static, committed by the workflows)
   └── /data/fc/*.json   forecast snapshot + manifest.json (static, deployed by the scheduled job, never committed)
 
-GitHub Action (every 4 h at :20 UTC, full station history in the Sunday 00:20 run, and on push)
-  refresh: npm run obs (+ new SNODAS days) → commit (write, no npm): validate_obs.py → public/data if changed
-  → build (read-only): test → vite build → npm run snapshot (dist/data/fc/, + verification record) → deploy-pages
-                                                                        └→ archive (write, no npm): data/verification branch
+GitHub Action (every 4 h at :20 UTC from GitHub's schedule and an external dispatch, full station history on
+Sundays at 00:20 UTC, and on push)
+  gate (no token, no checkout, no npm): skip if the deployed snapshot is under 2 h old; choose the refresh mode
+  → refresh: npm run obs (+ new SNODAS days) → commit (write, no npm): validate_obs.py → public/data if changed
+  → build (read-only): test → vite build → npm run snapshot (dist/data/fc/, + verification record)
+  → deploy-pages → healthcheck ping                                     └→ archive (write, no npm): data/verification branch
 
 GitHub Action backfill-snodas (manual only)
   plan (no token): seasons from the inputs → extract (read-only, one job per season, two at a time): SNODAS cells
@@ -420,10 +422,15 @@ GitHub Action backfill-snodas (manual only)
   - **Contents, per resort:** the deterministic forecast for all three bands; the pressure profile and all six ensembles at mid-mountain; run timing for every model; the run 12 h before each global model's latest run, at mid (run-change panel); NOAA NBM at mid for the three US resorts ("Compare with official guidance", and archived); the last-7-days requests at each station and at mid; and the snowpack-projection inputs (six ensembles and the single-model scenarios, with the `past_days` that station's latest reading implies) at the station the Snowpack tab opens by default, then at the other stations while the budget allows (§8). When a resort's local date changes within the next 4.5 h, the next day's snowpack variant is included too.
   - **Live only:** Run-history past runs, ensembles at base and summit, and NBM at base and summit.
   - **WPC chances:** the same run queries WPC's service (36 small requests to NOAA, no Open-Meteo cost) and writes `wpc-<hash>.json` next to the snapshot, named by the manifest's `wpc` entry. The browser reads only that same-origin file, so it never calls NOAA and the Content-Security-Policy is unchanged. A failed query leaves its cell unknown; if nothing usable came back, the run writes no file and the table says so.
-  - **Freshness:** a copy serves for 4.5 h after it was fetched (`SNAPSHOT_MAX_AGE_S`). The job runs every 4 h (`SNAPSHOT_INTERVAL_H`), so a scheduled run delayed by more than about 30 minutes leaves a gap that is served live.
+  - **Freshness:** a copy serves for 4.5 h after it was fetched (`SNAPSHOT_MAX_AGE_S`). The job runs every 4 h (`SNAPSHOT_INTERVAL_H`), so a run delayed by more than about 30 minutes leaves a gap that is served live. The site's footer says when the snapshot was taken, and once it is older than two refresh intervals (`SNAPSHOT_OVERDUE_S`, 8 h) a one-line warning above the header says the scheduled update is overdue.
   - **Politeness:** User-Agent with a contact URL (`PW_CONTACT`), at most 3 concurrent requests, paced under 400 weighted calls a minute (free tier: 600), 429/5xx retried with backoff and `Retry-After`, and a per-run budget in weighted calls.
   - **Failure handling:** a failed request is left out of the manifest and the browser fetches it live. The snapshot step cannot block the deploy: it has a 7-minute internal deadline, a 9-minute step timeout and `continue-on-error`.
   - The Content-Security-Policy is unchanged: `connect-src 'self'` covers the snapshot and the WPC file, and NBM comes from `api.open-meteo.com`, which it already allows.
+
+- **Schedule reliability:** GitHub's scheduler is best-effort. Between 2026-11-19 23:26 and 2026-11-20 18:50 UTC only 2 of 7 scheduled slots ran, both 1–2.5 h late, and GitHub keeps no record of a dropped run.
+  - **External trigger:** cron-job.org dispatches the workflow every 4 h at :20 UTC, with a fine-grained token limited to this repository and Actions read and write (no Contents access, so it can't push code). GitHub's own schedule stays on as a backup.
+  - **Gate:** the first job reads the deployed manifest and skips the run when the snapshot is under 2 h old, so a slot that both triggers fire for runs once and the six daily runs stay under 9,000 weighted Open-Meteo calls. Pushes and a ticked `full_refresh` always run. A dispatch is incremental; the weekly full refresh runs on the Sunday schedule or on a dispatch on Sunday 00:00–00:59 UTC, and is skipped only after another Sunday run.
+  - **Alerting:** healthchecks.io's check has a 4 h period and a 5 h grace time. The deploy job pings it after each deploy and the gate pings when it skips a run, so the owner gets an email after about 9 h without a fresh snapshot. The ping URL is a repository secret, read only by those two jobs, which run no npm code.
 
 - **Verification archive** (`scripts/verification.ts`, branch `data/verification`):
   - **Which runs:** every snapshot run names the newest 00Z or 12Z cycle that all current global models have run, from the run metadata it already fetches (the cycle hours are the model catalogue's full-length runs; a model more than one cycle behind is listed as lagging rather than holding the cycle back). It writes that cycle's record, and the `archive` job keeps the first record it sees for each cycle and never overwrites it. So each cycle is archived from the first snapshot run that carried it; which run that is depends on when the slowest global model publishes.
@@ -440,7 +447,7 @@ GitHub Action backfill-snodas (manual only)
   - Every chart has a crosshair tooltip and a table or text alternative.
   - Never two y-axes on one chart.
 - **No D1, Workers or R2.** The verification archive is JSON files on the repository's `data/verification` branch, so `main` does not grow.
-- **Tests:** Vitest covers the physics, statistics, climatology, snowpack and time-zone logic, snapshot URL parity and the cache's snapshot freshness and fallback, the SNODAS reader (cell indexing and its edge cases, scaling, header checks, and the tar and gzip path on a synthetic grid) and `validate_obs.py`, including its SNODAS merge. Run `npm test`.
+- **Tests:** Vitest covers the physics, statistics, climatology, snowpack and time-zone logic, snapshot URL parity and the cache's snapshot freshness and fallback, the workflow gate's skip and mode decisions (by running its script from the YAML), the SNODAS reader (cell indexing and its edge cases, scaling, header checks, and the tar and gzip path on a synthetic grid) and `validate_obs.py`, including its SNODAS merge. Run `npm test`.
 
 ---
 
