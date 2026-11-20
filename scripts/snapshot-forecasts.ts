@@ -5,8 +5,8 @@
  *
  * The manifest maps each request URL — built by the same functions the browser
  * uses (src/lib/openmeteo.ts, src/lib/requests.ts) — to its file and fetch
- * time. The browser uses a copy younger than 3.5 h and calls Open-Meteo itself
- * for anything missing or older (src/lib/cache.ts). Nothing here is committed:
+ * time. The browser uses a copy younger than SNAPSHOT_MAX_AGE_S (4.5 h) and calls
+ * Open-Meteo itself for anything missing or older (src/lib/cache.ts). Nothing here is committed:
  * it ships only with the Pages deploy.
  *
  *   npm run build && npm run snapshot
@@ -14,11 +14,13 @@
  * Polite to the free tier: at most 3 concurrent requests, paced under the
  * per-minute limit, 429/5xx retried with backoff (Retry-After honoured), and a
  * per-run budget in Open-Meteo's weighted calls; lower-priority groups are
- * skipped when it runs out (see scripts/snapshot-plan.ts). Failed requests are
- * logged and left out of the manifest; the exit code is 1 if any failed.
+ * skipped when it runs out, but the first screens always fit (see runBudget in
+ * scripts/snapshot-plan.ts). Failed requests are logged and left out of the
+ * manifest; the exit code is 1 if any failed.
  *
  * Env: PW_CONTACT (URL added to the User-Agent), SNAPSHOT_MAX_COST (per-run
- * budget, default 1125 weighted calls), SNAPSHOT_OUT (output directory).
+ * budget, default 1,250 weighted calls, raised to fit the first screens),
+ * SNAPSHOT_OUT (output directory).
  */
 import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
@@ -27,18 +29,19 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { RESORTS } from '../src/config/resorts';
 import { STATIONS } from '../src/config/stations';
-import { SNAPSHOT_DIR, SNAPSHOT_FILE_RE, SNAPSHOT_MANIFEST, type SnapshotEntry, type SnapshotManifest } from '../src/lib/cache';
+import { SNAPSHOT_DIR, SNAPSHOT_FILE_RE, SNAPSHOT_INTERVAL_H, SNAPSHOT_MANIFEST, type SnapshotEntry, type SnapshotManifest } from '../src/lib/cache';
 import type { StationFile } from '../src/lib/obs';
 import { parseRunMeta, parseSurface, runMetaUrl, type RunMeta, type SurfaceHourly } from '../src/lib/openmeteo';
 import {
-  DEFAULT_MAX_COST, PRIORITY, RUNS_PER_DAY, estimateCost, groupCost, metaIdsFor, midSurfaceUrl, planSnapshot, selectWithinBudget,
+  DEFAULT_MAX_COST, FIRST_SCREENS, PRIORITY, RUNS_PER_DAY, estimateCost, firstScreenCost, groupCost, metaIdsFor, midSurfaceUrl, planSnapshot, runBudget,
+  selectWithinBudget,
 } from './snapshot-plan';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const OUT = process.env.SNAPSHOT_OUT ? resolve(process.env.SNAPSHOT_OUT) : join(ROOT, 'dist', SNAPSHOT_DIR);
 const OBS = join(ROOT, 'public/data/obs');
 const CONTACT = process.env.PW_CONTACT;
-const UA = `PowderWatch/0.2 (personal snow dashboard; forecast snapshot every 3 h${CONTACT ? `; +${CONTACT}` : ''})`;
+const UA = `PowderWatch/0.2 (personal snow dashboard; forecast snapshot every ${SNAPSHOT_INTERVAL_H} h${CONTACT ? `; +${CONTACT}` : ''})`;
 const MAX_CONCURRENT = 3;
 /** Free tier: 600 weighted calls a minute per client. */
 const COST_PER_MINUTE = 400;
@@ -171,10 +174,12 @@ async function main() {
 
   // Stage 2: everything else, in priority order, within the budget.
   const plan = planSnapshot({ nowS, obs, meta, midSurface });
-  const { included, skipped, cost: planned } = selectWithinBudget(plan, MAX_COST);
+  const budget = runBudget(plan, MAX_COST);
+  const { included, skipped, cost: planned } = selectWithinBudget(plan, budget);
   const total = plan.reduce((s, g) => s + groupCost(g), 0);
-  console.log(`plan: ${plan.flatMap((g) => g.urls).length} URLs in ${plan.length} groups, est. ${fmtCost(total)} calls; ` +
-    `budget ${fmtCost(MAX_COST)} → ${included.flatMap((g) => g.urls).length} URLs, est. ${fmtCost(planned)} calls`);
+  console.log(`plan: ${plan.flatMap((g) => g.urls).length} URLs in ${plan.length} groups, est. ${fmtCost(total)} calls ` +
+    `(first screens ${fmtCost(firstScreenCost(plan))}); budget ${fmtCost(budget)} → ${included.flatMap((g) => g.urls).length} URLs, est. ${fmtCost(planned)} calls`);
+  if (skipped.some((g) => g.priority <= FIRST_SCREENS)) console.log('::warning::first-screen groups skipped: their cost is over HARD_MAX_COST');
   await fetchAll(included.flatMap((g) => g.urls), results);
 
   await mkdir(OUT, { recursive: true });

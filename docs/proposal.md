@@ -43,12 +43,12 @@ These decisions shape everything below.
 
 | Decision | Choice | Reason |
 |---|---|---|
-| Forecast source | Open-Meteo forecast, ensemble and single-run APIs, **snapshotted every 3 hours by the scheduled job**; the browser calls them directly only for what the snapshot lacks | Free for non-commercial use, CORS-enabled (`Access-Control-Allow-Origin: *`), no key. Covers every needed model. Open-Meteo rate-limits per IP, so visitors on shared networks (corporate VPN egress) get HTTP 429; normal visits therefore read the snapshot. No backend required for forecasts. |
+| Forecast source | Open-Meteo forecast, ensemble and single-run APIs, **snapshotted every 4 hours by the scheduled job**; the browser calls them directly only for what the snapshot lacks | Free for non-commercial use, CORS-enabled (`Access-Control-Allow-Origin: *`), no key. Covers every needed model. Open-Meteo rate-limits per IP, so visitors on shared networks (corporate VPN egress) get HTTP 429; normal visits therefore read the snapshot. No backend required for forecasts. |
 | Snowfall | **Computed by PowderWatch's own physics**, not taken from providers | Open-Meteo's `snowfall` uses a fixed 7:1 snow-to-liquid ratio. Providers also split rain and snow differently. One method for all models makes differences meaningful. |
 | Model ids | **Pure single-model ids** (`gfs_global`, `gem_global`, `icon_global`, …) | The `*_seamless` ids splice regional models in. For example, `gfs_seamless` is HRRR for the first 48 h in North America. That would double-count models in a blend and mislabel lines. |
 | Run history | **Open-Meteo Single Runs API**, fetched on demand | Past runs are retrievable for about 5 months: runs from 2026-07-01 are available, runs from 2026-04-01 are not. Storm-evolution views therefore need no archive. |
 | Observations | **Scheduled server-side fetch → static JSON** | BC ASWS, SLF and NWAC send no CORS headers. SNOTEL's API fails about half of requests at random. SLF's terms forbid per-end-user calls. |
-| Hosting | **Static site on GitHub Pages**, built and deployed every 3 hours by a **scheduled GitHub Action** that also writes the forecast snapshot into the site (`data/fc/`, not committed) | One account, no secrets. The snapshot holds raw API responses; ensemble processing (212 members × 384 h) stays in the browser, so no server compute is needed. Netlify's free plan (300 credits/month, 15 per production deploy) cannot absorb 3-hourly deploys; Cloudflare Pages (500 deploys/month, free Access login) is the alternative if the site must be private. |
+| Hosting | **Static site on GitHub Pages**, built and deployed every 4 hours by a **scheduled GitHub Action** that also writes the forecast snapshot into the site (`data/fc/`, not committed) | One account, no secrets. The snapshot holds raw API responses; ensemble processing (212 members × 384 h) stays in the browser, so no server compute is needed. Netlify's free plan (300 credits/month, 15 per production deploy) cannot absorb 4-hourly deploys; Cloudflare Pages (500 deploys/month, free Access login) is the alternative if the site must be private. |
 
 ---
 
@@ -318,7 +318,7 @@ These remain links.
 Browser (React + TypeScript + ECharts, static on GitHub Pages)
   ├── cachedJson(url): one path for every Open-Meteo request, keyed by request URL
   │     1. memory / IndexedDB copy within its TTL (live forecasts 30 min, past runs forever)
-  │     2. /data/fc/ snapshot copy younger than 3.5 h (manifest read once per page)
+  │     2. /data/fc/ snapshot copy younger than 4.5 h (manifest read once per page)
   │     3. Open-Meteo forecast / ensemble / single-run APIs (direct, CORS; ≤ 4 concurrent,
   │        on-screen requests first; 429/5xx retried twice)
   │     4. if that fails: the newest older copy (stale snapshot or stale cache)
@@ -330,7 +330,7 @@ Browser (React + TypeScript + ECharts, static on GitHub Pages)
   ├── /data/obs/*.json  station series (static, committed by the scheduled job)
   └── /data/fc/*.json   forecast snapshot + manifest.json (static, deployed by the scheduled job, never committed)
 
-GitHub Action (every 3 h at :20 UTC, full station history on Sundays, and on push)
+GitHub Action (every 4 h at :20 UTC, full station history in the Sunday 00:20 run, and on push)
   refresh: npm run obs → commit: public/data if changed
   → build (read-only): test → vite build → npm run snapshot (dist/data/fc/) → deploy-pages
 ```
@@ -338,9 +338,9 @@ GitHub Action (every 3 h at :20 UTC, full station history on Sundays, and on pus
 - **Forecast snapshot** (`scripts/snapshot-forecasts.ts`, `npm run snapshot`):
   - Fetches the Open-Meteo responses the first screens request and writes them unmodified to `dist/data/fc/`, with `manifest.json` mapping each request URL to `{file, fetchedAt}`. File names hash the URL and the content, so each file is immutable; the manifest is fetched with `no-cache`.
   - **URL parity:** the browser and the script build every URL with the same pure functions (`src/lib/openmeteo.ts` for parameters, `src/lib/requests.ts` for points, model lists and day counts). A unit test replays the views' requests and requires the planned list to match exactly.
-  - **Contents, per resort:** the deterministic forecast for all three bands; the pressure profile and all six ensembles at mid-mountain; run timing for every model; the run 12 h before each global model's latest run, at mid (run-change panel); the last-7-days requests at each station and at mid; and the snowpack-projection inputs (six ensembles and the single-model scenarios, with the `past_days` that station's latest reading implies) at the station the Snowpack tab opens by default, then at the other stations while the budget allows (§8). When a resort's local date changes within the next 3.5 h, the next day's snowpack variant is included too.
+  - **Contents, per resort:** the deterministic forecast for all three bands; the pressure profile and all six ensembles at mid-mountain; run timing for every model; the run 12 h before each global model's latest run, at mid (run-change panel); the last-7-days requests at each station and at mid; and the snowpack-projection inputs (six ensembles and the single-model scenarios, with the `past_days` that station's latest reading implies) at the station the Snowpack tab opens by default, then at the other stations while the budget allows (§8). When a resort's local date changes within the next 4.5 h, the next day's snowpack variant is included too.
   - **Live only:** Run-history past runs, and ensembles at base and summit.
-  - **Freshness:** a copy serves for 3.5 h after it was fetched. The job runs every 3 h, so a scheduled run delayed by more than about 30 minutes leaves a gap that is served live.
+  - **Freshness:** a copy serves for 4.5 h after it was fetched (`SNAPSHOT_MAX_AGE_S`). The job runs every 4 h (`SNAPSHOT_INTERVAL_H`), so a scheduled run delayed by more than about 30 minutes leaves a gap that is served live.
   - **Politeness:** User-Agent with a contact URL (`PW_CONTACT`), at most 3 concurrent requests, paced under 400 weighted calls a minute (free tier: 600), 429/5xx retried with backoff and `Retry-After`, and a per-run budget in weighted calls.
   - **Failure handling:** a failed request is left out of the manifest and the browser fetches it live. The snapshot step cannot block the deploy: it has a 7-minute internal deadline, a 9-minute step timeout and `continue-on-error`.
   - The Content-Security-Policy is unchanged: `connect-src 'self'` covers the snapshot.
@@ -368,7 +368,7 @@ GitHub Action (every 3 h at :20 UTC, full station history on Sundays, and on pus
 
 **Phase 4 — Verification**
 
-1. Archive, from the 3-hourly job, each model's day-1 to day-10 daily snow, precipitation and freezing level per band and station into JSON (or R2): about 50 kB a day for all resorts.
+1. Archive, from the 4-hourly job, each model's day-1 to day-10 daily snow, precipitation and freezing level per band and station into JSON (or R2): about 50 kB a day for all resorts.
 2. Verify against observations:
    - Precipitation: SNOTEL and BC ΔSWE.
    - Snowfall: SLF `HN_1D`, MeteoSwiss `hns000d0` and ECCC/BC Δdepth.
@@ -399,7 +399,7 @@ Next:
 | Component | Monthly cost |
 |---|---:|
 | GitHub Pages (static, public repo) | $0 |
-| GitHub Actions (3-hourly job; the snapshot step takes about 2 min) | $0 for a public repo |
+| GitHub Actions (4-hourly job; the snapshot step takes about 2 min) | $0 for a public repo |
 | Open-Meteo | $0 under non-commercial terms |
 | Station data | $0 |
 | Domain | optional |
@@ -450,7 +450,7 @@ A responsive static web app with:
 4. **Snowpack** — season chart against percentiles, with the ensemble projection and scenarios.
 5. **Methods** — the exact physics and parameters in use.
 
-Run locally with `npm run preview` (127.0.0.1:4173). The included GitHub Action deploys to GitHub Pages every 3 hours, with a fresh forecast snapshot.
+Run locally with `npm run preview` (127.0.0.1:4173). The included GitHub Action deploys to GitHub Pages every 4 hours, with a fresh forecast snapshot.
 
 ---
 

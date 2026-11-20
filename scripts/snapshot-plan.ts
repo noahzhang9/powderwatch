@@ -9,7 +9,7 @@
 import { ENSEMBLES } from '../src/config/models';
 import { RESORTS, type Resort } from '../src/config/resorts';
 import { stationsFor } from '../src/config/stations';
-import { SNAPSHOT_MAX_AGE_S } from '../src/lib/cache';
+import { SNAPSHOT_INTERVAL_H, SNAPSHOT_MAX_AGE_S } from '../src/lib/cache';
 import type { StationFile } from '../src/lib/obs';
 import { ENSEMBLE, ensembleUrl, profileUrl, runMetaUrl, singleRunUrl, surfaceUrl, type RunMeta, type SurfaceHourly } from '../src/lib/openmeteo';
 import {
@@ -35,10 +35,22 @@ export const PRIORITY = {
   snowpackOtherNextDay: 9,
 } as const;
 
-/** Open-Meteo free tier: < 10,000 weighted calls a day. The snapshot keeps to 9,000 at 8 runs a day. */
-export const DAILY_BUDGET = 9000;
-export const RUNS_PER_DAY = 8;
+/**
+ * Groups up to this priority are what a visit sees first (every band's forecast, mid ensembles, run change,
+ * last 7 days, the default Snowpack station). A run's budget grows to fit them (see runBudget).
+ */
+export const FIRST_SCREENS = PRIORITY.snowpackDefaultNextDay;
+
+/**
+ * Open-Meteo free tier: < 10,000 weighted calls a day. The scheduled runs share about 7,500 of them
+ * (runBudget can add a little), which leaves room for a push or manual run on the same day.
+ */
+export const DAILY_BUDGET = 7500;
+export const RUNS_PER_DAY = 24 / SNAPSHOT_INTERVAL_H;
+/** Each run's share. Beyond the first screens it buys other stations' snowpack inputs while it lasts. */
 export const DEFAULT_MAX_COST = DAILY_BUDGET / RUNS_PER_DAY;
+/** Ceiling for one run, even when the first screens cost more than that (a stop against config growth). */
+export const HARD_MAX_COST = 2000;
 
 export interface PlanGroup {
   priority: number;
@@ -139,6 +151,16 @@ export function estimateCost(url: string): number {
 }
 
 export const groupCost = (g: PlanGroup) => g.urls.reduce((s, u) => s + estimateCost(u), 0);
+
+export const firstScreenCost = (groups: PlanGroup[]) => groups.filter((g) => g.priority <= FIRST_SCREENS).reduce((s, g) => s + groupCost(g), 0);
+
+/**
+ * A run's budget: `maxCost`, raised to cover the first screens when they cost more, never above
+ * HARD_MAX_COST. That happens on a run whose snapshot is still served after a resort's local
+ * midnight, because it also carries the next day's snowpack inputs.
+ */
+export const runBudget = (groups: PlanGroup[], maxCost = DEFAULT_MAX_COST) =>
+  Math.min(HARD_MAX_COST, Math.max(maxCost, firstScreenCost(groups)));
 
 /** Keeps whole groups in priority order while the estimated cost fits the budget. */
 export function selectWithinBudget(groups: PlanGroup[], maxCost: number): { included: PlanGroup[]; skipped: PlanGroup[]; cost: number } {

@@ -15,7 +15,7 @@ below for authoritative data.
 | Fionnay (FIO) | MeteoSwiss Open Government Data | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) | Source: MeteoSwiss |
 
 Forecast data shown on the site comes from [Open-Meteo](https://open-meteo.com/) (CC BY 4.0). The
-files under `data/fc/` are unmodified copies of Open-Meteo API responses, refreshed every 3 hours;
+files under `data/fc/` are unmodified copies of Open-Meteo API responses, refreshed every 4 hours;
 the browser fetches anything not in them from Open-Meteo directly.
 
 The MIT licence in `LICENSE` covers the PowderWatch source code only, not this data.

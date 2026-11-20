@@ -13,9 +13,11 @@ import { loadStation, type StationFile } from '../src/lib/obs';
 import { parseRunMeta, type RunMeta, type SurfaceHourly } from '../src/lib/openmeteo';
 import { hasData, midBand, pointOf, projectionStart, runChangeModels, SNOWPACK_WITH_FREEZING_LEVEL } from '../src/lib/requests';
 import { todayIn } from '../src/lib/time';
-import { PRIORITY, estimateCost, metaIdsFor, planSnapshot, selectWithinBudget, type PlanGroup } from './snapshot-plan';
+import {
+  HARD_MAX_COST, PRIORITY, estimateCost, metaIdsFor, planSnapshot, runBudget, selectWithinBudget, type PlanGroup,
+} from './snapshot-plan';
 
-// 23:30 in Verbier: its local date changes while this snapshot is served; Crystal/Whistler's doesn't.
+// 23:30 in Verbier: its local date changes while this snapshot is served; the Pacific resorts' doesn't.
 const NOW_S = Date.parse('2026-11-19T22:30:00Z') / 1000;
 const LATER_S = NOW_S + SNAPSHOT_MAX_AGE_S - 60;
 const INIT_S = Date.parse('2026-11-19T12:00:00Z') / 1000;
@@ -146,6 +148,26 @@ describe('estimateCost (Open-Meteo weighted calls)', () => {
     expect(estimateCost(q(F, { hourly: vars(8), models: 'a,b,c,d,e,f,g,h', forecast_days: '16' }))).toBeCloseTo((64 / 10) * (16 / 14));
     expect(estimateCost(q(E, { hourly: vars(4), models: 'ecmwf_ifs025', forecast_days: '16', past_days: '2' }))).toBeCloseTo((204 / 10) * (18 / 14));
     expect(estimateCost('https://api.open-meteo.com/data/ncep_gfs013/static/meta.json')).toBe(0);
+  });
+});
+
+describe('runBudget', () => {
+  const F = 'https://api.open-meteo.com/v1/forecast?hourly=a,b,c,d,e,f,g,h,i,j&models=x&forecast_days=1'; // 1 call each
+  const g = (priority: number, n: number): PlanGroup => ({ priority, label: `p${priority}`, urls: Array.from({ length: n }, (_, i) => `${F}&i=${priority}-${i}`) });
+  it('grows to fit the first screens, never past the hard ceiling', () => {
+    expect(runBudget([g(PRIORITY.firstPaint, 3), g(PRIORITY.snowpackOther, 50)], 10)).toBe(10);
+    expect(runBudget([g(PRIORITY.firstPaint, 8), g(PRIORITY.snowpackDefaultNextDay, 6), g(PRIORITY.snowpackOther, 50)], 10)).toBe(14);
+    expect(runBudget([g(PRIORITY.firstPaint, HARD_MAX_COST + 5)], 10)).toBe(HARD_MAX_COST);
+  });
+  it("fits every resort's first screens, including across a local midnight", () => {
+    const meta = Object.fromEntries(metaIdsFor().map((id) => [id, parseRunMeta(fakeMeta())]));
+    const midSurface = Object.fromEntries(RESORTS.map((r) => [r.id, r.models.map((m) => ({ modelId: m, precip: [1] }) as SurfaceHourly)]));
+    // 20:20 PST: the Pacific resorts' snapshot is still served after their midnight.
+    const nowS = Date.parse('2026-11-20T04:20:00Z') / 1000;
+    const plan = planSnapshot({ nowS, obs: obsFiles(), meta, midSurface });
+    expect(plan.some((g) => g.priority === PRIORITY.snowpackDefaultNextDay)).toBe(true);
+    const { skipped } = selectWithinBudget(plan, runBudget(plan));
+    expect(skipped.filter((g) => g.priority <= PRIORITY.snowpackDefaultNextDay)).toEqual([]);
   });
 });
 

@@ -31,8 +31,8 @@ npx tsx scripts/backtest-snowpack.ts   # snowpack calibration/backtest against S
 
 ## Data refresh and deployment (GitHub Pages)
 
-`.github/workflows/refresh-and-deploy.yml` runs every 3 hours at 20 minutes past (00:20, 03:20, …
-UTC), on every push to `main`, and with a full station-history refresh on Sundays: refresh
+`.github/workflows/refresh-and-deploy.yml` runs every 4 hours at 20 minutes past (00:20, 04:20, …
+20:20 UTC), on every push to `main`, and with a full station-history refresh in the Sunday 00:20 run: refresh
 observations → commit `public/data` only if a reading changed → test → build → forecast snapshot →
 deploy `dist/` to GitHub Pages. Actions are pinned to commit SHAs and each job gets only the
 permissions it needs.
@@ -49,15 +49,16 @@ permissions it needs.
     allows. Run-history past runs and base/summit ensembles are always fetched live.
   - The browser builds every request URL with the same functions as the script
     (`src/lib/openmeteo.ts`, `src/lib/requests.ts`). `cachedJson` (`src/lib/cache.ts`) reads the
-    manifest once per page and uses a snapshot copy younger than 3.5 hours instead of calling
+    manifest once per page and uses a snapshot copy younger than 4.5 hours instead of calling
     Open-Meteo. For anything missing or older it calls Open-Meteo as before and, if that fails
     (e.g. HTTP 429 on a shared network), falls back to the older snapshot copy.
   - The script sends a User-Agent with `PW_CONTACT`, makes at most 3 concurrent requests paced
     under the free tier's per-minute limit, retries 429/5xx with backoff, and logs requests, bytes
-    and Open-Meteo's weighted call cost (`X-RateLimit-Cost`). A per-run budget of 1,125 weighted
-    calls (`SNAPSHOT_MAX_COST`) keeps 8 runs a day at or under 9,000 of the free tier's 10,000;
-    lower-priority groups are skipped when it runs out. A failed or partial snapshot never blocks
-    the deploy; the browser fetches whatever is missing.
+    and Open-Meteo's weighted call cost (`X-RateLimit-Cost`). Each run has a budget of 1,250
+    weighted calls (`SNAPSHOT_MAX_COST`), raised when needed to fit the first screens, so the six
+    scheduled runs use about 7,500–7,800 of the free tier's 10,000 a day and leave room for a push
+    or manual run. Lower-priority groups are skipped when the budget runs out. A failed or partial
+    snapshot never blocks the deploy; the browser fetches whatever is missing.
 
 One-time setup:
 

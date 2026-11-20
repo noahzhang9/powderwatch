@@ -20,13 +20,14 @@ import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { STATIONS, type StationDef } from '../src/config/stations';
+import { SNAPSHOT_INTERVAL_H } from '../src/lib/cache';
 import type { StationFile } from '../src/lib/obs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const OUT = join(ROOT, 'public/data/obs');
 const CACHE = join(ROOT, '.cache');
 const CONTACT = process.env.PW_CONTACT;
-const UA = `PowderWatch/0.2 (personal snow dashboard; scheduled fetch every 3 h${CONTACT ? `; +${CONTACT}` : ''})`;
+const UA = `PowderWatch/0.2 (personal snow dashboard; scheduled fetch every ${SNAPSHOT_INTERVAL_H} h${CONTACT ? `; +${CONTACT}` : ''})`;
 const FULL = process.env.FULL_REFRESH === '1';
 const ARCHIVE_MAX_AGE_DAYS = Number(process.env.ARCHIVE_MAX_AGE_DAYS ?? 30);
 /** Incremental window: long enough to pick up late QC revisions. */
@@ -202,7 +203,7 @@ let slfRecent: Promise<{ station_code: string; measure_date: string; HS: number 
 
 async function slf(st: StationDef, since: string | null): Promise<Daily> {
   const d: Daily = new Map();
-  // Incremental runs use only the 7-day public API (the workflow runs every 6 h; weekly full refresh backfills).
+  // Incremental runs use only the 7-day public API (scheduled runs are hours apart; the weekly full refresh backfills).
   const hist = since ? '' : await fetchText(`https://measurement-data.slf.ch/imis/data/daily_snow_values/daily_snow_by_station/daily_snow_${st.sourceId}.csv`);
   const lines = hist ? hist.split(/\r?\n/) : [''];
   const header = lines[0].split(',');

@@ -1,6 +1,7 @@
 import { ENSEMBLES, MODELS } from '../config/models';
 import { RESORTS } from '../config/resorts';
 import { STATIONS } from '../config/stations';
+import { SNAPSHOT_INTERVAL_H, SNAPSHOT_MAX_AGE_S } from '../lib/cache';
 import { PHASE_TW_HALF_WIDTH, PHASE_TW_MID, SNOW_LEVEL_OFFSET_M, snowToLiquidRatio } from '../lib/physics';
 import { DEFAULT_PARAMS } from '../lib/snowpack';
 import { SPLIT_HIGH_CM, SPLIT_LOW_CM, SPLIT_MIN_SHARE } from '../lib/ensemble';
@@ -76,6 +77,18 @@ export function About() {
         <li>Season = Oct 1 – Jun 30. A past season counts only with ≥80% of Nov–May days present. The current season never counts toward normals.</li>
         <li>Percentile bands are computed across seasons for each calendar day, then smoothed with a 7-day running mean.</li>
         <li>Each comparison uses one station's own record — never mixed with resort-reported depths.</li>
+      </ul>
+
+      <h2>Data freshness</h2>
+      <ul className="list-disc pl-5">
+        <li>
+          A scheduled job refreshes station observations and a forecast snapshot every {SNAPSHOT_INTERVAL_H} hours ({24 / SNAPSHOT_INTERVAL_H} times a day). With the
+          snapshot, the dashboard, the Storm tracker at mid-mountain, the last 7 days and each resort's default Snowpack station need no direct calls to Open-Meteo.
+        </li>
+        <li>
+          A snapshot copy is used until it is {SNAPSHOT_MAX_AGE_S / 3600} hours old. Past that, and for what the snapshot leaves out (Run history, base and summit
+          ensembles, some Snowpack stations), the browser asks Open-Meteo directly and caches the answer.
+        </li>
       </ul>
 
       <h2>Coverage</h2>

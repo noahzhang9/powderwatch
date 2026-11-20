@@ -134,8 +134,10 @@ export class HttpError extends Error {
 /** Snapshot location, relative to the site root. */
 export const SNAPSHOT_DIR = 'data/fc/';
 export const SNAPSHOT_MANIFEST = 'manifest.json';
-/** Snapshot copies younger than this are used instead of calling Open-Meteo (the job runs every 3 h). */
-export const SNAPSHOT_MAX_AGE_S = 3.5 * 3600;
+/** The scheduled job refreshes the snapshot this often (keep in step with the workflow's cron). */
+export const SNAPSHOT_INTERVAL_H = 4;
+/** Snapshot copies younger than this are used instead of calling Open-Meteo: one interval plus 30 minutes for a late run. */
+export const SNAPSHOT_MAX_AGE_S = (SNAPSHOT_INTERVAL_H + 0.5) * 3600;
 /** `<url hash>-<content hash>.json`: content-addressed, so a cached copy is never out of date. */
 export const SNAPSHOT_FILE_RE = /^[0-9a-f]{16}-[0-9a-f]{10}\.json$/;
 /** A tab open this long re-reads the manifest once, to pick up the next snapshot. */

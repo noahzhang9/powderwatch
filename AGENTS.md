@@ -14,7 +14,7 @@ npm run build          # tsc + vite build → dist/
 npm run preview        # serve dist/ on 127.0.0.1:4173
 npm run dev            # 127.0.0.1:5173 with hot reload
 npm run obs            # refresh station data → public/data/obs/*.json (incremental; FULL_REFRESH=1 for full history)
-npm run snapshot       # fetch the forecast snapshot → dist/data/fc/ (run after build; costs ~1,000 Open-Meteo weighted calls)
+npm run snapshot       # fetch the forecast snapshot → dist/data/fc/ (run after build; costs ~1,250 Open-Meteo weighted calls)
 npx tsx scripts/backtest-snowpack.ts   # snowpack calibration against SNOTEL (~2 min, uses ERA5 via Open-Meteo)
 ```
 
@@ -37,7 +37,7 @@ Run `npm test`, `npm run typecheck` and `npm run build` before every commit. For
 | `src/views/` | Dashboard, Storm tracker (`StormView.tsx`, `storm/`), Run history, Snowpack, Methods (`About.tsx`) |
 | `scripts/` | `fetch-obs.ts` (station ingest), `snapshot-plan.ts` + `snapshot-forecasts.ts` (forecast snapshot), `backtest-snowpack.ts` |
 | `public/data/obs/` | Generated station series (committed by the workflow; never edit by hand) |
-| `.github/workflows/refresh-and-deploy.yml` | Every 3 h + on push to `main`: refresh → commit → build + snapshot → deploy |
+| `.github/workflows/refresh-and-deploy.yml` | Every 4 h + on push to `main`: refresh → commit → build + snapshot → deploy |
 
 ## Invariants: don't break these
 
@@ -48,7 +48,7 @@ Run `npm test`, `npm run typecheck` and `npm run build` before every commit. For
 
 If parity drifts, the cache silently stops working, and visits fall back to live calls (and to rate limits on shared networks).
 
-**Open-Meteo budget.** The free tier is non-commercial and allows fewer than 10,000 *weighted* calls a day (cost grows with variables × models × ensemble members, and with days beyond 14). The snapshot runs 8 times a day with a per-run cap (`DEFAULT_MAX_COST` in `snapshot-plan.ts`, ~1,125). Before adding requests, check `estimateCost`/`groupCost` and the plan's skipped groups. Prefer dropping unused variables to raising the cap.
+**Open-Meteo budget.** The free tier is non-commercial and allows fewer than 10,000 *weighted* calls a day (cost grows with variables × models × ensemble members, and with days beyond 14). The snapshot runs 6 times a day (`SNAPSHOT_INTERVAL_H` in `src/lib/cache.ts`, kept in step with the workflow cron) with a per-run cap (`DEFAULT_MAX_COST` in `snapshot-plan.ts`, 1,250). `runBudget` raises a run's cap to fit the first screens (groups up to `FIRST_SCREENS`), never above `HARD_MAX_COST`. Before adding requests, check `estimateCost`/`groupCost`/`firstScreenCost` and the plan's skipped groups. Prefer dropping unused variables to raising the cap.
 
 **One physics for all models.** Never use a provider's own snowfall field for display; it's for comparison only (Open-Meteo's is a fixed 7:1 ratio). Snowfall, phase and snow level go through `physics.ts`, so every model is treated the same.
 

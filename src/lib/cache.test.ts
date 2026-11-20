@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { SNAPSHOT_MAX_AGE_S, cachedJson, clearCache, parseManifest, snapshotIsFresh, type SnapshotEntry } from './cache';
+import { SNAPSHOT_INTERVAL_H, SNAPSHOT_MAX_AGE_S, cachedJson, clearCache, parseManifest, snapshotIsFresh, type SnapshotEntry } from './cache';
 
 const NOW = Date.parse('2026-11-19T22:30:00Z');
 const NOW_S = NOW / 1000;
@@ -50,9 +50,9 @@ afterEach(() => {
 });
 
 describe('snapshotIsFresh', () => {
-  it('accepts copies younger than about 3.5 h', () => {
-    expect(SNAPSHOT_MAX_AGE_S).toBe(3.5 * 3600);
-    expect(snapshotIsFresh({ file: FILE_A, fetchedAt: NOW_S - 3 * 3600 }, NOW_S)).toBe(true);
+  it('accepts copies younger than one refresh interval plus 30 minutes', () => {
+    expect(SNAPSHOT_MAX_AGE_S).toBe((SNAPSHOT_INTERVAL_H + 0.5) * 3600);
+    expect(snapshotIsFresh({ file: FILE_A, fetchedAt: NOW_S - SNAPSHOT_INTERVAL_H * 3600 }, NOW_S)).toBe(true);
     expect(snapshotIsFresh({ file: FILE_A, fetchedAt: NOW_S - SNAPSHOT_MAX_AGE_S + 1 }, NOW_S)).toBe(true);
     expect(snapshotIsFresh({ file: FILE_A, fetchedAt: NOW_S - SNAPSHOT_MAX_AGE_S }, NOW_S)).toBe(false);
   });
