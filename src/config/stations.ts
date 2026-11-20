@@ -41,6 +41,8 @@ const ECCC_ATTR = 'Data Source: Environment and Climate Change Canada (ECCC Data
 const BC_ATTR = 'BC River Forecast Centre ASWS — contains information licensed under the Open Government Licence – British Columbia';
 const SLF_ATTR = 'WSL Institute for Snow and Avalanche Research SLF (CC BY 4.0)';
 const MS_ATTR = 'Source: MeteoSwiss (CC BY 4.0)';
+/** JMA website terms (Public Data License 1.0): cite the source, and say the data is edited. */
+const JMA_ATTR = 'Source: Japan Meteorological Agency website (edited by PowderWatch)';
 
 export const STATIONS: StationDef[] = [
   // --- Crystal Mountain ---
@@ -144,6 +146,16 @@ export const STATIONS: StationDef[] = [
     url: 'https://www.meteoswiss.admin.ch/services-and-publications/applications/measurement-values.html',
     attribution: MS_ATTR,
     dailyNote: 'Manual observer reading at 06 UTC (Val de Bagnes); record since 2008, gaps on many days.',
+  },
+  // --- Niseko (the resort itself is added separately) ---
+  {
+    id: 'jma-16217', resortId: 'niseko', name: 'Kutchan', source: 'JMA', sourceId: '16:47433',
+    lat: 42.9, lon: 140.7567, elevation: 176, swe: false,
+    url: 'https://www.data.jma.go.jp/stats/etrn/index.php?prec_no=16&block_no=47433&year=&month=&day=&view=', attribution: JMA_ATTR,
+    dailyNote:
+      "The day's maximum depth (JST), not a reading at a set time like SNOTEL's; new snow is the day's sum of hourly depth gains. " +
+      'Automatic gauge since 1998; before that, the largest of three daily readings. Record here since 1991.',
+    caveat: "In Kutchan town on the valley floor, about 6 km northeast of Grand Hirafu's base: far below the ski terrain, so it holds less snow and sees rain sooner.",
   },
 ];
 

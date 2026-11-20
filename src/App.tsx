@@ -86,7 +86,8 @@ export function App() {
         <p className="mt-1">
           Observations: <a href="https://wcc.sc.egov.usda.gov/">USDA NRCS SNOTEL</a>; Data Source: <a href="https://eccc-msc.github.io/open-data/licence/readme_en/">Environment and Climate Change Canada</a>;
           contains information licensed under the <a href="https://www2.gov.bc.ca/gov/content/data/policy-standards/data-policies/open-data/open-government-licence-bc">Open Government Licence – British Columbia</a> (BC River Forecast Centre);{' '}
-          <a href="https://www.slf.ch">WSL Institute for Snow and Avalanche Research SLF</a> (CC BY 4.0); Source: <a href="https://www.meteoswiss.admin.ch">MeteoSwiss</a> (CC BY 4.0).
+          <a href="https://www.slf.ch">WSL Institute for Snow and Avalanche Research SLF</a> (CC BY 4.0); Source: <a href="https://www.meteoswiss.admin.ch">MeteoSwiss</a> (CC BY 4.0);
+          Source: <a href="https://www.data.jma.go.jp/stats/etrn/index.php">Japan Meteorological Agency website</a> (edited).
           Station data is processed (daily aggregation, unit conversion, plausibility filtering) — see <a href="./data/NOTICE.md">data notice</a>.
         </p>
         <p className="mt-1">
