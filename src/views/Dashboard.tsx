@@ -2,17 +2,18 @@ import { useState } from 'react';
 import { RESORTS, resortById, type Resort } from '../config/resorts';
 import { stationsFor } from '../config/stations';
 import { RequestError } from '../components/ui';
-import { useBandForecast, type BandForecast } from '../hooks/data';
-import { useAsync } from '../hooks/useAsync';
+import { useBandForecast, useDashboardEnsembles, type BandForecast, type EnsembleSet } from '../hooks/data';
+import { useAsync, type AsyncState } from '../hooks/useAsync';
 import { href } from '../hooks/useRoute';
-import { NOT_IN_SNAPSHOT, isNotInSnapshot } from '../lib/cache';
+import { NOT_IN_SNAPSHOT, SNAPSHOT_MAX_AGE_S, isNotInSnapshot } from '../lib/cache';
+import { windowQuantiles, windowTotals } from '../lib/ensemble';
 import { buildClimatology, percentileRank, seasonIndex } from '../lib/climatology';
 import { dailyCentres, dailyPhase, lastValidTime, windowSum, type DailyRow } from '../lib/forecast';
 import { latest, loadStation } from '../lib/obs';
 import { useFmt, type Fmt } from '../lib/prefs';
 import { isNum } from '../lib/stats';
 import { snowClass } from '../lib/palette';
-import { useSinceLastVisit } from '../lib/visits';
+import { useSinceLastVisit, type VisitDelta } from '../lib/visits';
 import { storageGet, storageSet } from '../lib/storage';
 import { useNarrow } from '../hooks/useNarrow';
 import { midBand } from '../lib/requests';
@@ -25,8 +26,8 @@ export function Dashboard() {
     <div className="pt-5">
       <h1 className="text-2xl font-semibold tracking-tight">Conditions & outlook</h1>
       <p className="text-sm text-ink-2 mt-1 max-w-3xl">
-        Forecasts are a family-balanced blend of up to eight models at each resort's mid-mountain elevation, with their spread shown.
-        Snow depths come from nearby measurement stations and are compared against those stations' own history.
+        Forecasts are a family-balanced blend of up to eight models at each resort's mid-mountain elevation, with their spread shown;
+        7-day totals lead with the ensemble median. Snow depths come from nearby measurement stations and are compared against those stations' own history.
       </p>
       <WhereWhen />
       <Trips />
@@ -94,6 +95,7 @@ function ResortCard({ resort }: { resort: Resort }) {
   const fmt = useFmt();
   const narrow = useNarrow();
   const fc = useBandForecast(resort, midBand(resort));
+  const ens = useDashboardEnsembles(resort);
   const obs = usePrimaryStation(resort);
   const now = nowUnix();
   const data = fc.data;
@@ -103,8 +105,6 @@ function ResortCard({ resort }: { resort: Resort }) {
   const bi = bestDayIndex(days);
   const best = bi == null ? null : days[bi];
 
-  const visitKey = (hours: number) => `${resort.id}:mid:${hours}`;
-  const deltas = useSinceLastVisit(data ? Object.fromEntries([72, 168].map((h) => [visitKey(h), windowStats(data, now, h).total])) : {});
   const w7 = data ? windowStats(data, now, 168) : null;
   const o = obs.data;
   const thin = o?.clim && o.clim.seasons.length < 10;
@@ -145,18 +145,8 @@ function ResortCard({ resort }: { resort: Resort }) {
         ) : (
           <>
             <div className="grid grid-cols-2 gap-3 mt-1">
-              {[72, 168].map((h) => {
-                const s = windowStats(data, now, h);
-                const d = deltas[visitKey(h)] ?? null;
-                return (
-                  <div key={h}>
-                    <div className="text-xl font-semibold">{fmt.snow(s.total)}</div>
-                    <div className="text-[11px] text-ink-3">{h / 24} days</div>
-                    {s.min != null && <div className="text-[11px] text-ink-2 tnum">models {fmt.snowRange(s.min, s.max)}</div>}
-                    {d && <div className="text-[11px]"><Delta d={d} fmt={fmt} /></div>}
-                  </div>
-                );
-              })}
+              <BlendTotal resort={resort} data={data} now={now} hours={72} fmt={fmt} />
+              <WeekTotal resort={resort} data={data} ens={ens} now={now} fmt={fmt} />
             </div>
             <div className="text-xs text-ink-2 mt-2">
               {w7 && `7-day: ${agreement(w7.total, w7.min, w7.max)}`}
@@ -171,6 +161,67 @@ function ResortCard({ resort }: { resort: Resort }) {
         )}
       </div>
     </div>
+  );
+}
+
+/** One of a card's totals: value, what it is, its spread and the change since the last visit. */
+function Total({ value, label, spread, delta, fmt, title }: {
+  value: number | null; label: string; spread?: string | null; delta?: VisitDelta | null; fmt: Fmt; title?: string;
+}) {
+  return (
+    <div title={title}>
+      <div className="text-xl font-semibold">{fmt.snow(value)}</div>
+      <div className="text-[11px] text-ink-3">{label}</div>
+      {spread && <div className="text-[11px] text-ink-2 tnum">{spread}</div>}
+      {delta && <div className="text-[11px]"><Delta d={delta} fmt={fmt} /></div>}
+    </div>
+  );
+}
+
+/** The blend's total over the next `hours`, with the range of the models that cover the window. */
+function BlendTotal({ resort, data, now, hours, fmt, title }: { resort: Resort; data: BandForecast; now: number; hours: number; fmt: Fmt; title?: string }) {
+  const s = windowStats(data, now, hours);
+  const key = `${resort.id}:mid:${hours}`; // the Storm tracker's key for its blend total at mid
+  const delta = useSinceLastVisit({ [key]: s.total })[key];
+  return (
+    <Total
+      value={s.total}
+      label={`${hours / 24} days · blend`}
+      spread={s.min != null ? `models ${fmt.snowRange(s.min, s.max)}` : null}
+      delta={delta}
+      fmt={fmt}
+      title={title}
+    />
+  );
+}
+
+/**
+ * The next 7 days lead with the ensemble median and its 10–90% range, the Storm tracker's figure at mid.
+ * The ensembles come from the snapshot alone (loadDashboardEnsembles); without a fresh copy the card shows
+ * the blend, labelled as such.
+ */
+function WeekTotal({ resort, data, ens, now, fmt }: {
+  resort: Resort; data: BandForecast; ens: AsyncState<EnsembleSet>; now: number; fmt: Fmt;
+}) {
+  const ws = ens.data?.members.length ? windowTotals(ens.data.time, ens.data.members, now, now + 168 * 3600) : null;
+  const [p10, p50, p90] = ws ? windowQuantiles(ws, [0.1, 0.5, 0.9]) : [null, null, null];
+  const key = `${resort.id}:mid:168:median`;
+  const delta = useSinceLastVisit({ [key]: p50 })[key];
+  if (!ens.data && !ens.error) return <Total value={null} label="7 days" spread="loading ensembles…" fmt={fmt} />;
+  if (p50 == null) {
+    const why = isNotInSnapshot(ens.error)
+      ? `${NOT_IN_SNAPSHOT}: this is the multi-model blend.`
+      : `The ensembles are read from the forecast snapshot only, and it has none under ${SNAPSHOT_MAX_AGE_S / 3600} hours old: this is the multi-model blend.`;
+    return <BlendTotal resort={resort} data={data} now={now} hours={168} fmt={fmt} title={why} />;
+  }
+  return (
+    <Total
+      value={p50}
+      label="7 days · ensemble median"
+      spread={`10–90%: ${fmt.snowRange(p10, p90)}`}
+      delta={delta}
+      fmt={fmt}
+    />
   );
 }
 

@@ -138,6 +138,10 @@ export function About() {
           The same job adds each new SNODAS day (NSIDC posts it around 14:00 UTC), so the modelled points lag by up to a day. A snapshot copy is used until it is {SNAPSHOT_MAX_AGE_S / 3600} hours old. Past that, and for what the snapshot leaves out (Run history, base and summit
           ensembles, some Snowpack stations), the browser asks Open-Meteo directly and caches the answer.
         </li>
+        <li>
+          The dashboard's ensembles are the exception: it never asks Open-Meteo for them. Its 7-day figure is the ensemble median from a snapshot (or
+          cached) copy under {SNAPSHOT_MAX_AGE_S / 3600} hours old, the copy the Storm tracker would use, and otherwise the blend, labelled "blend".
+        </li>
       </ul>
 
       <h2>Official guidance (US resorts)</h2>

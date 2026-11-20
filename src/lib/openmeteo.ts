@@ -288,10 +288,12 @@ export function parseEnsemble(d: OmResponse, modelId: string, pt: Point): Ensemb
   return { modelId, elevation: d.elevation ?? pt.elevation, time: h.time as number[], members };
 }
 
+/** `live: false` reads the request from the cache or the snapshot only (CacheOpts); the URL is the same either way. */
 export async function fetchEnsemble(
-  pt: Point, modelId: string, tz: string, opts: { pastDays?: number; withFreezingLevel?: boolean } = {},
+  pt: Point, modelId: string, tz: string, opts: { pastDays?: number; withFreezingLevel?: boolean; live?: boolean } = {},
 ): Promise<EnsembleHourly> {
-  return parseEnsemble(await cachedJson<OmResponse>(ensembleUrl(pt, modelId, tz, opts), FORECAST_TTL, 'low'), modelId, pt);
+  const url = ensembleUrl(pt, modelId, tz, { pastDays: opts.pastDays, withFreezingLevel: opts.withFreezingLevel });
+  return parseEnsemble(await cachedJson<OmResponse>(url, FORECAST_TTL, 'low', { live: opts.live }), modelId, pt);
 }
 
 export interface RunMeta {

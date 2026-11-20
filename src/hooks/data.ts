@@ -83,9 +83,14 @@ export interface EnsembleSet {
   failed: string[];
 }
 
-/** All ensembles at a point. Rejects with NotInSnapshotError only when none is in a snapshot-only build's snapshot. */
-export async function loadEnsembles(pt: Point, tz: string, pastDays?: number, withFreezingLevel = true): Promise<EnsembleSet> {
-  const results = await Promise.allSettled(ENSEMBLES.map((e) => fetchEnsemble(pt, e.id, tz, { pastDays, withFreezingLevel })));
+/**
+ * All ensembles at a point. Rejects with NotInSnapshotError only when none is in a snapshot-only build's snapshot.
+ * `live: false` never calls Open-Meteo (CacheOpts): an ensemble without a fresh enough copy counts as failed.
+ */
+export async function loadEnsembles(
+  pt: Point, tz: string, pastDays?: number, withFreezingLevel = true, { live = true }: { live?: boolean } = {},
+): Promise<EnsembleSet> {
+  const results = await Promise.allSettled(ENSEMBLES.map((e) => fetchEnsemble(pt, e.id, tz, { pastDays, withFreezingLevel, live })));
   const sets: MemberSeries[][] = [];
   const failed: string[] = [];
   results.forEach((r, i) => {
@@ -103,6 +108,17 @@ export function useEnsembles(pt: Point | null, tz: string, enabled = true, pastD
     [pt?.lat, pt?.lon, pt?.elevation, tz, pastDays, withFreezingLevel],
     enabled && pt != null,
   );
+}
+
+/**
+ * The dashboard's ensembles: the Storm tracker's at mid-mountain (the same URLs, which the snapshot holds), read
+ * from the cache or a fresh snapshot only. Live they would cost about 30 heavy calls a visit whenever the
+ * snapshot is stale; the dashboard shows the blend then.
+ */
+export const loadDashboardEnsembles = (resort: Resort) => loadEnsembles(pointOf(midBand(resort)), resort.tz, undefined, true, { live: false });
+
+export function useDashboardEnsembles(resort: Resort) {
+  return useAsync(() => loadDashboardEnsembles(resort), [resort.id]);
 }
 
 /** Latest-run timing per model id. */

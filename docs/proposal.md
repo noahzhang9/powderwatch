@@ -244,7 +244,7 @@ The same period's GFS runs read 74 → 20 → 14 → 0 → 25 cm. A storm vanish
 **Resort cards:**
 
 - station depth, % of median and percentile, labelled as a station, never as "base";
-- blended snowfall at 3 and 7 days, each with the model range and the change since your last visit;
+- the next 3 days' blended snowfall with the model range, and the next 7 days' ensemble median with its 10–90% range (the Storm tracker's mid ensembles, read from the snapshot only; the blend, labelled, when it has no copy under 4.5 hours old), each with the change since your last visit;
 - a model-agreement label;
 - the best day, the one the Where & when grid stars.
 

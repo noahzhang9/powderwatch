@@ -60,6 +60,8 @@ For browser checks, use `npm run preview:local`, not a fresh `npm run snapshot`.
 
 If parity drifts, the cache silently stops working, and visits fall back to live calls (and to rate limits on shared networks).
 
+The dashboard's 7-day ensemble median reads the Storm tracker's mid ensembles with `{ live: false }` (`loadDashboardEnsembles`): from the cache or a fresh snapshot only, never live, and the blend, labelled, otherwise. Keep those requests in `planSnapshot`; the plan test checks that the dashboard reads exactly them and calls nothing live.
+
 **Open-Meteo budget.** The free tier is non-commercial and allows fewer than 10,000 *weighted* calls a day (cost grows with variables × models × ensemble members, and with days beyond 14). The snapshot runs 6 times a day (`SNAPSHOT_INTERVAL_H` in `src/lib/cache.ts`, kept in step with the workflow cron) with a per-run cap (`DEFAULT_MAX_COST` in `snapshot-plan.ts`, 1,250). `runBudget` raises a run's cap to fit the first screens (groups up to `FIRST_SCREENS`), never above `HARD_MAX_COST`. Before adding requests, check `estimateCost`/`groupCost`/`firstScreenCost` and the plan's skipped groups. Prefer dropping unused variables to raising the cap.
 
 **One physics for all models.** Never use a provider's own snowfall field for display; it's for comparison only (Open-Meteo's is a fixed 7:1 ratio). Snowfall, phase and snow level go through `physics.ts`, so every model is treated the same.

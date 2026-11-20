@@ -6,9 +6,9 @@ import { HISTORY_MODELS } from '../src/config/models';
 import { RESORTS } from '../src/config/resorts';
 import { STATIONS, stationsFor } from '../src/config/stations';
 import {
-  loadBandSurface, loadEnsembles, loadNbm, loadProfiles, loadRecentModels, loadRunChange, loadRunMeta, loadScenarios,
+  loadBandSurface, loadDashboardEnsembles, loadEnsembles, loadNbm, loadProfiles, loadRecentModels, loadRunChange, loadRunMeta, loadScenarios,
 } from '../src/hooks/data';
-import { SNAPSHOT_MAX_AGE_S, clearCache } from '../src/lib/cache';
+import { SNAPSHOT_MAX_AGE_S, clearCache, type SnapshotEntry } from '../src/lib/cache';
 import { loadStation, type StationFile } from '../src/lib/obs';
 import { parseRunMeta, type RunMeta, type SurfaceHourly } from '../src/lib/openmeteo';
 import { hasData, midBand, pointOf, projectionStart, runChangeModels, SNOWPACK_WITH_FREEZING_LEVEL } from '../src/lib/requests';
@@ -69,6 +69,7 @@ async function browserRequests(atS: number) {
     const surface = await loadBandSurface(r, mid);
     midSurface[r.id] = surface;
     await loadProfiles(r);
+    await loadDashboardEnsembles(r); // never live: no request here, see "the dashboard's ensembles" below
     const meta = await loadRunMeta(r.models);
     await loadEnsembles(pointOf(mid), r.tz);
     await loadRunChange(r, mid, runChangeModels(surface.filter(hasData).map((s) => s.modelId)), meta);
@@ -129,6 +130,51 @@ describe('snapshot plan', () => {
     const runs = urls.filter((u) => u.includes('single-runs')).map((u) => new URL(u).searchParams.get('run'));
     expect(new Set(runs)).toEqual(new Set([new Date((INIT_S - 12 * 3600) * 1000).toISOString().slice(0, 16)]));
     expect(runs.length).toBe(RESORTS.length * HISTORY_MODELS.length);
+  });
+
+  describe("the dashboard's ensembles", () => {
+    const fileName = (i: number) => `${i.toString(16).padStart(16, '0')}-0000000000.json`;
+
+    it('are read from the snapshot alone: exactly the Storm tracker\'s mid ensembles in the plan, never live', async () => {
+      vi.setSystemTime(NOW_S * 1000);
+      await clearCache();
+      const plan = planSnapshot({ nowS: NOW_S, obs: obsFiles() });
+      // A deployed snapshot holding every planned request.
+      const byFile = new Map(allUrls(plan).map((u, i) => [fileName(i), u]));
+      const entries: Record<string, SnapshotEntry> = Object.fromEntries([...byFile].map(([f, u]) => [u, { file: f, fetchedAt: NOW_S - 600 }]));
+      const read = new Set<string>();
+      vi.stubGlobal('fetch', async (input: RequestInfo | URL) => {
+        const url = String(input);
+        const json = (body: unknown) => new Response(JSON.stringify(body), { headers: { 'content-type': 'application/json' } });
+        if (url.startsWith('https://')) {
+          requested.add(url);
+          return json(fakeOpenMeteo(new URL(url)));
+        }
+        if (url.endsWith('/data/fc/manifest.json')) return json({ version: 1, generatedAt: NOW_S - 600, entries });
+        const planned = byFile.get(url.split('/').pop()!);
+        if (!planned) return new Response('not found', { status: 404 });
+        read.add(planned);
+        return json(fakeOpenMeteo(new URL(planned)));
+      });
+      requested.clear();
+      for (const r of RESORTS) {
+        const ens = await loadDashboardEnsembles(r);
+        expect(ens.failed).toEqual([]);
+        expect(ens.members.length).toBeGreaterThan(0);
+      }
+      expect(requested.size).toBe(0);
+      const midEnsembles = plan.filter((g) => g.priority === PRIORITY.midEnsembles).flatMap((g) => g.urls);
+      expect(midEnsembles.length).toBeGreaterThan(0);
+      expect([...read].sort()).toEqual([...midEnsembles].sort());
+    });
+
+    it('request nothing when the snapshot has no copy', async () => {
+      vi.setSystemTime(NOW_S * 1000);
+      await clearCache();
+      requested.clear();
+      for (const r of RESORTS) expect((await loadDashboardEnsembles(r)).members).toEqual([]);
+      expect(requested.size).toBe(0);
+    });
   });
 
   it('asks the last-7-days and snowpack-scenario requests for the physics inputs only', () => {
