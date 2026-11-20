@@ -112,13 +112,6 @@ export function StormView({ resort }: { resort: Resort }) {
             {narrow ? 'Official guidance' : 'Compare with official guidance'}
           </label>
         )}
-        <details className="text-xs text-ink-2">
-          <summary className="btn">Advanced</summary>
-          <label className="flex items-center gap-1.5 mt-2">
-            <input type="checkbox" checked={rawSnow} onChange={(e) => setRawSnow(e.target.checked)} />
-            Show Open-Meteo raw snowfall (fixed 7:1 ratio) instead of PowderWatch physics
-          </label>
-        </details>
       </div>
       {data && (narrow ? (
         <details className="mt-3">
@@ -142,8 +135,13 @@ export function StormView({ resort }: { resort: Resort }) {
               ? 'Blend of all models, shaded by amount, total under each day. Hover a day for every model, the ensemble range and whether the models are split.'
               : 'Cumulative snowfall from now. Thick line: blend.'}
             right={
-              <div className="flex gap-2">
+              <div className="flex flex-wrap gap-2">
                 {mode === 'daily' && narrow && <button type="button" className="btn" onClick={() => setAllDays((a) => !a)}>{allDays ? '8 days' : '16 days'}</button>}
+                {/* Off by default: Open-Meteo's own snowfall, for comparison with PowderWatch physics. */}
+                <label className="btn" title="Show Open-Meteo's own snowfall (fixed 7:1 snow-to-liquid ratio) instead of PowderWatch physics, here and in the totals above. For comparison only.">
+                  <input type="checkbox" checked={rawSnow} onChange={(e) => setRawSnow(e.target.checked)} style={{ width: 12, height: 12, margin: 0 }} />
+                  {narrow ? 'Raw 7:1' : 'Open-Meteo raw snowfall (7:1)'}
+                </label>
                 <button type="button" className="btn" aria-pressed={showTable} onClick={() => setShowTable((s) => !s)}>{showTable ? 'Hide table' : 'Table'}</button>
               </div>
             }
