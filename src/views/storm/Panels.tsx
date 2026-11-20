@@ -47,6 +47,8 @@ const WINDOWS = [
  * Headline totals. Short windows lead with the multi-model blend; 7+ day
  * windows lead with the ensemble median because the blend's membership
  * thins out with lead time and can leave the range of the models that remain.
+ * When one model alone covers a window, the blend's late days are that model,
+ * so the tile names it and gives its own total instead of a blend.
  */
 export function Totals({ data, now, ens, fmt, rawSnow, resort, band }: {
   data: BandForecast; now: number; ens?: EnsembleSet; fmt: Fmt; rawSnow: boolean; resort: Resort; band: Band;
@@ -61,27 +63,40 @@ export function Totals({ data, now, ens, fmt, rawSnow, resort, band }: {
     .map((t, i) => (t > now && t <= now + 72 * 3600 && (data.blend.precip[i] ?? 0) >= 0.3 ? data.blend.snowLevel[i] : null))
     .filter(isNum);
   const rain7 = windowSum(data.blend.time, data.blend.rainMm, now, now + 168 * 3600);
+  // "None" only when the blend and every model show as zero, so the sub-line never contradicts the value.
+  const zero = fmt.snow(0);
   return (
     <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3 mt-4">
       {WINDOWS.map((w) => {
         const blendTotal = windowSum(data.blend.time, data.blend[key], now, now + w.hours * 3600);
-        const per = data.models.map((m) => modelWindow(m, now, w.hours, key)).filter(isNum);
+        // Models that cover the whole window, with their own totals.
+        const cover = data.models
+          .map((m) => ({ label: m.model.label, v: modelWindow(m, now, w.hours, key) }))
+          .filter((x): x is { label: string; v: number } => isNum(x.v));
+        const per = cover.map((x) => x.v);
         const lo = per.length >= 2 ? Math.min(...per) : null;
         const hi = per.length >= 2 ? Math.max(...per) : null;
-        const range = lo == null ? 'one model reaches this far' : lo < 0.5 && hi! < 0.5 ? `all ${per.length} models: none` : `${per.length} models: ${fmt.snowRange(lo, hi)}`;
+        const only = cover.length === 1 ? cover[0] : null;
         const ws = ens && !rawSnow ? windowTotals(ens.time, ens.members, now, now + w.hours * 3600) : null;
         const [p10, p50, p90] = ws ? windowQuantiles(ws, [0.1, 0.5, 0.9]) : [null, null, null];
         const useEns = w.ensemble && p50 != null;
+        const range = !cover.length
+          ? 'no model reaches this far'
+          : only
+            ? useEns ? `only ${only.label} reaches this far: ${fmt.snow(only.v)}` : 'no other model reaches this far'
+            : fmt.snow(hi) === zero && fmt.snow(blendTotal ?? 0) === zero
+              ? `all ${per.length} models: none`
+              : `${per.length} models: ${fmt.snowRange(lo, hi)}`;
         const outside = blendTotal != null && lo != null && hi != null && (blendTotal < lo - 0.5 || blendTotal > hi + 0.5);
         const delta = deltas[visitKey(w.hours)] ?? null;
         return (
           <Tile
             key={w.label}
-            label={useEns ? `${w.label} · ensemble median` : w.label}
-            value={fmt.snow(useEns ? p50 : blendTotal)}
+            label={useEns ? `${w.label} · ensemble median` : only ? `${w.label} · ${only.label}` : w.label}
+            value={fmt.snow(useEns ? p50 : only ? only.v : cover.length ? blendTotal : null)}
             sub={
               <>
-                {useEns ? <>10–90%: {fmt.snowRange(p10, p90)} · blend {fmt.snow(blendTotal)}</> : range}
+                {useEns ? <>10–90%: {fmt.snowRange(p10, p90)}{cover.length >= 2 && <> · blend {fmt.snow(blendTotal)}</>}</> : range}
                 {useEns && <><br />{range}</>}
                 {!useEns && p10 != null && w.hours >= 72 && <><br />ensemble 10–90%: {fmt.snowRange(p10, p90)}</>}
                 {outside && <><br /><span className="text-ink-1">⚠ blend outside the model range (fewer centres late in the window)</span></>}
