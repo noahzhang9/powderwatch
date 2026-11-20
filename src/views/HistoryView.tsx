@@ -97,7 +97,7 @@ export function HistoryView({ resort }: { resort: Resort }) {
     }
     const results = (await Promise.all(tasks)).filter((r): r is RunResult => r != null).sort((a, b) => a.run - b.run);
     return { results, notInSnapshot, requested: tasks.length };
-  }, [selected.join(','), band.key, from, to, meta.data != null]);
+  }, [resort.id, selected.join(','), band.key, from, to, meta.data != null]);
   const runResults = runs.data?.results;
 
   const toggle = (id: string) => setSelected((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]));
