@@ -3,7 +3,7 @@ import { HISTORY_MODELS, MODELS } from '../config/models';
 import type { BandKey, Resort } from '../config/resorts';
 import { bandInText } from '../config/resorts';
 import { Chart, baseOption, tipHeader, tipRow, type EChartsCoreOption } from '../components/Chart';
-import { Loading, ModelChip, Notice, Section, Seg } from '../components/ui';
+import { Disclosure, Loading, ModelChip, Notice, Section, Seg } from '../components/ui';
 import { useBandForecast, useRunMeta } from '../hooks/data';
 import { useAsync } from '../hooks/useAsync';
 import { NOT_IN_SNAPSHOT, isNotInSnapshot } from '../lib/cache';
@@ -33,6 +33,8 @@ interface RunResult {
 export function HistoryView({ resort }: { resort: Resort }) {
   const fmt = useFmt();
   const [bandKey, setBandKey] = useHashParam<BandKey>('band', 'mid', ['base', 'mid', 'summit']);
+  // Supporting charts (same data, no extra requests) sit under "More detail", as on the Storm tracker.
+  const [more, setMore] = useHashParam<'0' | '1'>('more', '0', ['0', '1']);
   const band = resort.bands.find((b) => b.key === bandKey)!;
   const available = HISTORY_MODELS.filter((m) => resort.models.includes(m));
   const [selected, setSelected] = useState<string[]>(['ecmwf_ifs025', 'gfs_global', 'gem_global'].filter((m) => available.includes(m)));
@@ -137,26 +139,28 @@ export function HistoryView({ resort }: { resort: Resort }) {
           </>
         )}
       </Section>
-      {runResults && focus && runResults.some((r) => r.modelId === focus) && (
-        <Section
-          title={`${MODELS[focus].label}: storm evolution run by run`}
-          subtitle="Cumulative snowfall through the window as forecast by each run. Older runs fade; the latest two are labelled."
-          right={
-            <label className="text-xs text-ink-2 flex items-center gap-2">
-              Storm evolution for
-              <select className="field" value={focus} onChange={(e) => setFocus(e.target.value)}>
-                {selected.map((id) => <option key={id} value={id}>{MODELS[id].label}</option>)}
-              </select>
-            </label>
-          }
-        >
-          <EvolutionChart runs={runResults.filter((r) => r.modelId === focus)} from={from} to={to} tz={resort.tz} fmt={fmt} />
-        </Section>
-      )}
       {runResults && runResults.length > 0 && (
-        <Section title="Run table">
-          <RunTable runs={runResults} fmt={fmt} />
-        </Section>
+        <Disclosure label="More detail" hint="Storm evolution run by run · run table" open={more === '1'} onToggle={(o) => setMore(o ? '1' : '0')}>
+          {focus && runResults.some((r) => r.modelId === focus) && (
+            <Section
+              title={`${MODELS[focus].label}: storm evolution run by run`}
+              subtitle="Cumulative snowfall through the window as forecast by each run. Older runs fade; the latest two are labelled."
+              right={
+                <label className="text-xs text-ink-2 flex items-center gap-2">
+                  Storm evolution for
+                  <select className="field" value={focus} onChange={(e) => setFocus(e.target.value)}>
+                    {selected.map((id) => <option key={id} value={id}>{MODELS[id].label}</option>)}
+                  </select>
+                </label>
+              }
+            >
+              <EvolutionChart runs={runResults.filter((r) => r.modelId === focus)} from={from} to={to} tz={resort.tz} fmt={fmt} />
+            </Section>
+          )}
+          <Section title="Run table">
+            <RunTable runs={runResults} fmt={fmt} />
+          </Section>
+        </Disclosure>
       )}
     </div>
   );
