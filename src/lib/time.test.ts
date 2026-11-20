@@ -19,7 +19,8 @@ describe('run times in the resort’s local time', () => {
     expect(runLabel(run12z, 'America/Los_Angeles')).toBe('Nov 19, 4 AM');
     expect(runHour(run12z, 'America/Los_Angeles')).toBe('4 AM');
     expect(runHour(run12z, 'Europe/Zurich')).toBe('1 PM');
-    expect(runLabel(Date.UTC(2026, 10, 20, 0) / 1000, 'America/Vancouver')).toBe('Nov 19, 4 PM'); // 00Z is the evening before
+    // 00Z is the evening before. (Not America/Vancouver: see 'reports local date and hour' above.)
+    expect(runLabel(Date.UTC(2026, 10, 20, 0) / 1000, 'America/Los_Angeles')).toBe('Nov 19, 4 PM');
   });
 
   it('names the zone, with daylight saving', () => {
