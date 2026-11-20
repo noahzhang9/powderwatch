@@ -52,6 +52,55 @@ export const RESORTS: Resort[] = [
     ],
   },
   {
+    // One resort, four base areas on one ticket. Alpental (north of I-90) is the upper band rather than its own
+    // resort: it is 4 km from Summit Central, shares its stations and NWAC zone, and the global models can't
+    // tell the two apart, so only elevation differs — which is what bands are for.
+    id: 'snoqualmie',
+    name: 'Summit at Snoqualmie & Alpental',
+    short: 'Snoqualmie',
+    region: 'Washington Cascades',
+    tz: 'America/Los_Angeles',
+    bands: [
+      // Summit Central base area (bottom of Central Express); the operator publishes no base figure (USGS 3DEP).
+      { key: 'base', label: 'Base', elevation: 896, lat: 47.4078, lon: -121.4123 },
+      // Top of Summit Central, 3,865 ft (operator trail map); the upper end of Summit West/Central/East.
+      { key: 'mid', label: 'Mid', elevation: 1178, lat: 47.4019, lon: -121.4248 },
+      // Alpental Top Station, 5,420 ft (operator trail map).
+      { key: 'summit', label: 'Alpental top', elevation: 1652, lat: 47.4388, lon: -121.4428 },
+    ],
+    models: [...GLOBAL, 'ncep_hrrr_conus', 'gem_hrdps_continental'],
+    links: [
+      { label: 'Mountain report', url: 'https://www.summitatsnoqualmie.com/mountain-report' },
+      { label: 'Webcams', url: 'https://www.summitatsnoqualmie.com/webcams' },
+      { label: 'NWAC avalanche forecast — Snoqualmie Pass', url: 'https://nwac.us/forecasts/avalanche/snoqualmie-pass' },
+      { label: 'NWAC weather stations — Alpental', url: 'https://nwac.us/weather/stations/alpental' },
+      { label: 'NWAC weather stations — Snoqualmie Pass', url: 'https://nwac.us/weather/stations/snoqualmie-pass' },
+      { label: 'NWS Seattle', url: 'https://www.weather.gov/sew/' },
+    ],
+  },
+  {
+    id: 'stevens',
+    name: 'Stevens Pass',
+    short: 'Stevens',
+    region: 'Washington Cascades',
+    tz: 'America/Los_Angeles',
+    bands: [
+      // Base 4,061 ft and highest point 5,845 ft (Cowboy Mountain): operator's mountain stats.
+      { key: 'base', label: 'Base', elevation: 1238, lat: 47.744, lon: -121.0925 },
+      // Top of Hogsback Express (USGS 3DEP).
+      { key: 'mid', label: 'Mid', elevation: 1480, lat: 47.736, lon: -121.0974 },
+      { key: 'summit', label: 'Summit', elevation: 1782, lat: 47.7322, lon: -121.1022 },
+    ],
+    models: [...GLOBAL, 'ncep_hrrr_conus', 'gem_hrdps_continental'],
+    links: [
+      { label: 'Snow & weather report', url: 'https://www.stevenspass.com/the-mountain/mountain-conditions/weather-report.aspx' },
+      { label: 'Mountain cams', url: 'https://www.stevenspass.com/the-mountain/mountain-conditions/mountain-cams.aspx' },
+      { label: 'NWAC avalanche forecast — Stevens Pass', url: 'https://nwac.us/forecasts/avalanche/stevens-pass' },
+      { label: 'NWAC weather stations — Stevens Pass', url: 'https://nwac.us/weather/stations/stevens-ski-area' },
+      { label: 'NWS Seattle', url: 'https://www.weather.gov/sew/' },
+    ],
+  },
+  {
     id: 'whistler',
     name: 'Whistler Blackcomb',
     short: 'Whistler',

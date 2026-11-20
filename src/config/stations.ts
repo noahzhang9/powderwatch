@@ -51,6 +51,42 @@ export const STATIONS: StationDef[] = [
     url: 'https://wcc.sc.egov.usda.gov/nwcc/site?sitenum=1085', attribution: SNOTEL_ATTR,
     dailyNote: 'Midnight (PST) reading; record since 2006.',
   },
+  // --- Summit at Snoqualmie & Alpental ---
+  {
+    id: 'snotel-672', resortId: 'snoqualmie', name: 'Olallie Meadows', source: 'SNOTEL', sourceId: '672:WA:SNTL',
+    lat: 47.3741, lon: -121.4421, elevation: 1222, swe: true,
+    url: 'https://wcc.sc.egov.usda.gov/nwcc/site?sitenum=672', attribution: SNOTEL_ATTR,
+    dailyNote: 'Midnight (PST) reading; depth since 2003, SWE since 1982. Same drainage as Alpental and Summit West (upper South Fork Snoqualmie).',
+  },
+  {
+    id: 'snotel-899', resortId: 'snoqualmie', name: 'Tinkham Creek', source: 'SNOTEL', sourceId: '899:WA:SNTL',
+    lat: 47.332, lon: -121.4698, elevation: 914, swe: true,
+    url: 'https://wcc.sc.egov.usda.gov/nwcc/site?sitenum=899', attribution: SNOTEL_ATTR,
+    dailyNote: 'Midnight (PST) reading; depth since 2005, SWE since 1993.',
+    caveat: 'At base-area elevation, 9 km south-southwest in the Cedar River headwaters: below most of the ski terrain, so it sees rain sooner and holds less snow.',
+  },
+  {
+    id: 'snotel-788', resortId: 'snoqualmie', name: 'Stampede Pass', source: 'SNOTEL', sourceId: '788:WA:SNTL',
+    lat: 47.2743, lon: -121.3416, elevation: 1173, swe: true,
+    url: 'https://wcc.sc.egov.usda.gov/nwcc/site?sitenum=788', attribution: SNOTEL_ATTR,
+    dailyNote: 'Midnight (PST) reading; depth since 2002, SWE since 1982.',
+    caveat: 'At mid-mountain elevation but 16 km south-southeast, on a separate pass in the Green River drainage.',
+  },
+  // --- Stevens Pass ---
+  {
+    id: 'snotel-791', resortId: 'stevens', name: 'Stevens Pass', source: 'SNOTEL', sourceId: '791:WA:SNTL',
+    lat: 47.7461, lon: -121.0929, elevation: 1201, swe: true,
+    url: 'https://wcc.sc.egov.usda.gov/nwcc/site?sitenum=791', attribution: SNOTEL_ATTR,
+    dailyNote: 'Midnight (PST) reading; depth since 2002, SWE since 1980. At the pass beside the base area (upper Tye River).',
+    caveat: 'Just below the base area and about 580 m below the summit: upper-mountain depths are usually greater.',
+  },
+  {
+    id: 'snotel-478', resortId: 'stevens', name: 'Fish Lake', source: 'SNOTEL', sourceId: '478:WA:SNTL',
+    lat: 47.5357, lon: -121.0855, elevation: 1049, swe: true,
+    url: 'https://wcc.sc.egov.usda.gov/nwcc/site?sitenum=478', attribution: SNOTEL_ATTR,
+    dailyNote: 'Midnight (PST) reading; depth since 2000, SWE since 1983.',
+    caveat: '22 km south, east of the Cascade crest (Cle Elum River headwaters) and 190 m below the base: it usually holds less snow than Stevens Pass.',
+  },
   // --- Whistler Blackcomb ---
   {
     id: 'eccc-1108906', resortId: 'whistler', name: 'Whistler Roundhouse', source: 'ECCC', sourceId: '1108906',
