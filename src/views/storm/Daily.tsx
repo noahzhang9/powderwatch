@@ -300,7 +300,7 @@ export function DailyLegend({ fmt, nbm, tz }: { fmt: Fmt; nbm?: NbmForecast | nu
   return (
     <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-ink-2 mt-2" style={{ paddingLeft: GRID_L }} aria-label="Legend">
       <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
-        Snow per day ({fmt.snowUnit}):
+        Blend per day ({fmt.snowUnit}):
         {labels.map((l, i) => <span key={l} className="flex items-center gap-1">{sw(`var(--snow-${i + 1})`)}{l}</span>)}
       </span>
       <span className="flex items-center gap-1">{sw('transparent', { border: '1.5px solid var(--snow-3)' })}fewer than 3 centres</span>

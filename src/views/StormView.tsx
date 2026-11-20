@@ -74,20 +74,17 @@ export function StormView({ resort }: { resort: Resort }) {
 
   const chips = data && (
     <div className="flex flex-wrap gap-2" role="group" aria-label="Models (toggle visibility)">
-      <span className="chip" style={{ cursor: 'default' }} title="Family-balanced blend of all models">
-        <span aria-hidden style={{ width: 14, height: 3, background: 'var(--ink-1)', display: 'inline-block', borderRadius: 1 }} />
-        Blend
-      </span>
       {data.models.map((m) => {
         const end = lastValidTime(m.time, m.precip);
         return (
           <ModelChip
             key={m.model.id}
             color={`var(--s${m.model.slot})`}
-            label={`${m.model.kind === 'regional' ? '◆ ' : ''}${m.model.label}`}
+            label={m.model.label}
+            mark={m.model.kind === 'regional' ? 'diamond' : 'dot'}
             on={!hidden.has(m.model.id)}
             onToggle={() => toggle(m.model.id)}
-            title={`${m.model.blurb}\n${m.model.resolutionKm} km${end ? ` · data to ${localHourLabel(end, resort.tz)}` : ''}\nFreezing level: ${m.fzlSource === 'model' ? 'model output' : m.fzlSource === 'computed' ? 'computed from pressure levels' : 'unavailable'}`}
+            title={`${m.model.blurb}\n${m.model.kind === 'regional' ? 'High-res regional model' : 'Global model'}, ${m.model.resolutionKm} km${end ? ` · data to ${localHourLabel(end, resort.tz)}` : ''}\nFreezing level: ${m.fzlSource === 'model' ? 'model output' : m.fzlSource === 'computed' ? 'computed from pressure levels' : 'unavailable'}`}
           />
         );
       })}
@@ -134,7 +131,7 @@ export function StormView({ resort }: { resort: Resort }) {
             title={`Snowfall at ${bandInText(band)} (${fmt.elev(band.elevation)})`}
             subtitle={mode === 'daily'
               ? 'Blend of all models, shaded by amount, total under each day. Hover a day for every model, the ensemble range and whether the models are split.'
-              : 'Cumulative snowfall from now. Thick line: blend.'}
+              : 'Cumulative snowfall from now, the blend and each model shown.'}
             right={
               <div className="flex flex-wrap gap-2">
                 {mode === 'daily' && narrow && <button type="button" className="btn" onClick={() => setAllDays((a) => !a)}>{allDays ? '8 days' : '16 days'}</button>}
@@ -156,7 +153,19 @@ export function StormView({ resort }: { resort: Resort }) {
                 {official && nbm.error && <RequestError what={NBM.label} error={nbm.error} retry={nbm.retry} />}
               </>
             ) : (
-              <CumulativeChart data={data} visible={visible} now={now} tz={resort.tz} fmt={fmt} rawSnow={rawSnow} />
+              <>
+                <CumulativeChart data={data} visible={visible} now={now} tz={resort.tz} fmt={fmt} rawSnow={rawSnow} />
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-ink-2 mt-2" aria-label="Legend">
+                  <span className="flex items-center gap-1.5">
+                    <span aria-hidden style={{ width: 16, height: 3.5, background: 'var(--ink-1)', display: 'inline-block', borderRadius: 1 }} />
+                    Blend
+                  </span>
+                  <span className="flex items-center gap-1.5">
+                    <span aria-hidden style={{ width: 16, height: 2, background: 'var(--ink-3)', display: 'inline-block', borderRadius: 1 }} />
+                    each model, in its chip's colour
+                  </span>
+                </div>
+              </>
             )}
             {showTable && <DailyTable data={data} tz={resort.tz} fmt={fmt} nbm={nbmData} driven={driven} />}
           </Section>

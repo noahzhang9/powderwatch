@@ -200,12 +200,21 @@ export function Disclosure({ label, hint, open, onToggle, children }: {
 }
 
 /** Legend + visibility toggle for a model; mirrors the line mark it controls. */
-export function ModelChip({ color, label, on, onToggle, title, thick }: {
-  color: string; label: string; on: boolean; onToggle: () => void; title?: string; thick?: boolean;
+/**
+ * A model's visibility toggle, keyed with the mark its chart draws: a line swatch by default, or the daily
+ * chart's dot (global models) or diamond (high-res regional models), in the model's colour.
+ */
+export function ModelChip({ color, label, on, onToggle, title, thick, mark = 'line' }: {
+  color: string; label: string; on: boolean; onToggle: () => void; title?: string; thick?: boolean; mark?: 'line' | 'dot' | 'diamond';
 }) {
+  const swatch = mark === 'dot'
+    ? { width: 9, height: 9, borderRadius: '50%' }
+    : mark === 'diamond'
+      ? { width: 8, height: 8, transform: 'rotate(45deg)', margin: '0 1px' }
+      : { width: 14, height: thick ? 3 : 2, borderRadius: 1 };
   return (
     <button type="button" className="chip" aria-pressed={on} onClick={onToggle} title={title}>
-      <span aria-hidden style={{ width: 14, height: thick ? 3 : 2, background: color, display: 'inline-block', borderRadius: 1 }} />
+      <span aria-hidden style={{ ...swatch, background: color, display: 'inline-block', flex: 'none' }} />
       {label}
     </button>
   );
