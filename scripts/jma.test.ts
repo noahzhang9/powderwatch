@@ -7,6 +7,7 @@ import type { Daily } from './obs-file';
 const fixture = (ym: string) => readFileSync(new URL(`./fixtures/jma-47433-${ym}.html`, import.meta.url), 'utf-8');
 const JAN_2005 = fixture('2005-01');
 const FEB_2026 = fixture('2026-02');
+const OCT_2011 = fixture('2011-10');
 const NOV_2026 = fixture('2026-11');
 const LATER = '2026-11-21';
 
@@ -28,6 +29,14 @@ describe('JMA daily pages', () => {
     expect(day(p, '2026-02-19')).toEqual({ date: '2026-02-19', depthCm: null, newSnowCm: null }); // "138 ]", "1 ]"
     expect(day(p, '2026-02-20')).toEqual({ date: '2026-02-20', depthCm: 131, newSnowCm: 0 }); // new snow "--"
     expect(p.flags).toEqual({ none: 7, insufficient: 2 });
+  });
+
+  it('drops missing (×) days and "none" on too little input (-- ])', () => {
+    const p = parseJmaDaily(OCT_2011, { year: 2011, month: 10 }, LATER);
+    const empty = p.days.filter((d) => d.depthCm == null && d.newSnowCm == null).map((d) => d.date.slice(8));
+    expect(empty).toEqual(['12', '13', '14', '15', '16', '17', '27']); // -- ] on 12, 17, 27; × on 13–16
+    expect(p.days.filter((d) => d.depthCm === 0 && d.newSnowCm === 0)).toHaveLength(31 - 7);
+    expect(p.flags).toEqual({ none: 48, insufficient: 6, missing: 8 });
   });
 
   it('stores -- as 0, so a snow-free start of season is complete, and stops before today', () => {
