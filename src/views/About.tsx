@@ -4,6 +4,7 @@ import { SNODAS_ABOUT, SNODAS_CITATION, SNODAS_DOI, SNODAS_FIRST_SEASON, SNODAS_
 import { SNAPSHOT_INTERVAL_H, SNAPSHOT_MAX_AGE_S } from '../lib/cache';
 import { PHASE_TW_HALF_WIDTH, PHASE_TW_MID, SNOW_LEVEL_OFFSET_M, snowToLiquidRatio } from '../lib/physics';
 import { DEFAULT_PARAMS } from '../lib/snowpack';
+import { GAP_FILL_DAYS, MIN_SEASON_COVERAGE, SMOOTH_HALF_DAYS } from '../lib/climatology';
 import { CHANCE_THRESHOLDS_CM, SPLIT_HIGH_CM, SPLIT_LOW_CM, SPLIT_MIN_SHARE } from '../lib/ensemble';
 import { PHASE_BAND_M } from '../lib/forecast';
 import { useFmt } from '../lib/prefs';
@@ -77,8 +78,12 @@ export function About() {
 
       <h2>Climatology</h2>
       <ul className="list-disc pl-5">
-        <li>Season = Oct 1 – Jun 30. A past season counts only with ≥80% of Nov–May days present. The current season never counts toward normals.</li>
-        <li>Percentile bands are computed across seasons for each calendar day, then smoothed with a 7-day running mean.</li>
+        <li>
+          Season = Oct 1 – Jun 30. A missing day takes the nearest reading within {GAP_FILL_DAYS} days, since depth changes slowly. A past
+          season counts only when at least {Math.round(MIN_SEASON_COVERAGE * 100)}% of its Nov–May days then have a value, so a station
+          reporting at least once every {2 * GAP_FILL_DAYS + 1} days counts as complete. The current season never counts toward normals.
+        </li>
+        <li>Percentile bands are computed across seasons for each calendar day, then smoothed with a {2 * SMOOTH_HALF_DAYS + 1}-day running mean.</li>
         <li>Each comparison uses one station's own record — never mixed with resort-reported depths.</li>
       </ul>
 

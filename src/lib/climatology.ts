@@ -10,6 +10,18 @@ import { quantile, isNum } from './stats';
 import { valueOn, type StationFile, type Variable } from './obs';
 
 export const SEASON_DAYS = 273;
+/**
+ * A missing day takes the nearest reading within this many days (depth changes slowly), so a
+ * gap of up to twice this many days is filled completely.
+ */
+export const GAP_FILL_DAYS = 2;
+/**
+ * A past season counts toward normals when at least this share of its Nov–May days has a value,
+ * counted after gap-filling: a station reporting at least once every 2·GAP_FILL_DAYS + 1 days scores 100%.
+ */
+export const MIN_SEASON_COVERAGE = 0.8;
+/** Percentile bands are smoothed with a running mean over ±this many days. */
+export const SMOOTH_HALF_DAYS = 3;
 const MONTH_DAYS = [31, 30, 31, 31, 28, 31, 30, 31, 30]; // Oct..Jun
 const SEASON_MONTHS = [10, 11, 12, 1, 2, 3, 4, 5, 6];
 
@@ -52,12 +64,12 @@ export interface Climatology {
   bySeason: Map<number, (number | null)[]>;
 }
 
-/** Daily values of one season (gaps ≤ 2 days filled from the nearest reading). */
+/** Daily values of one season (a missing day takes the nearest reading within GAP_FILL_DAYS). */
 export function seasonSeries(f: StationFile, v: Variable, season: number): (number | null)[] {
   const raw = Array.from({ length: SEASON_DAYS }, (_, k) => valueOn(f, v, seasonDate(season, k)));
   return raw.map((x, k) => {
     if (x != null) return x;
-    for (let dk = 1; dk <= 2; dk++) {
+    for (let dk = 1; dk <= GAP_FILL_DAYS; dk++) {
       const a = raw[k - dk];
       const b = raw[k + dk];
       if (a != null) return a;
@@ -67,7 +79,7 @@ export function seasonSeries(f: StationFile, v: Variable, season: number): (numb
   });
 }
 
-const smooth = (xs: (number | null)[], half = 3) =>
+const smooth = (xs: (number | null)[], half = SMOOTH_HALF_DAYS) =>
   xs.map((_, i) => {
     const w = xs.slice(Math.max(0, i - half), i + half + 1).filter(isNum);
     return w.length ? w.reduce((s, x) => s + x, 0) / w.length : null;
@@ -78,7 +90,7 @@ export function currentSeason(todayIso: string): number {
   return m >= 7 ? y : y - 1;
 }
 
-export function buildClimatology(f: StationFile, v: Variable, todayIso: string, minCoverage = 0.8): Climatology | null {
+export function buildClimatology(f: StationFile, v: Variable, todayIso: string, minCoverage = MIN_SEASON_COVERAGE): Climatology | null {
   if (!f[v]) return null;
   const first = seasonIndex(f.start);
   const firstSeason = first ? (first.k === 0 ? first.season : first.season + 1) : Number(f.start.slice(0, 4));
