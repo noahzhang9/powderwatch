@@ -27,7 +27,8 @@ export function deriveMembers(ens: EnsembleHourly): MemberSeries[] {
   const def = ENSEMBLES.find((e) => e.id === ens.modelId)!;
   return ens.members.map((m, k) => ({
     def, member: k, time: ens.time, precip: nonNegativePrecip(m.precip), tC: m.tC, rh: m.rh,
-    // Some ensembles (ECMWF) publish no freezing level: estimate it from the member's own downscaled temperature.
+    // Most ensembles publish no freezing level (and aren't asked for one, see `nativeFreezingLevel`):
+    // estimate it from the member's own downscaled temperature.
     fzl: m.fzl.some(isNum) ? m.fzl : m.tC.map((t) => (t == null ? null : Math.max(0, ens.elevation + t / FALLBACK_LAPSE))),
     snowCm: m.precip.map((p, i) => {
       const t = m.tC[i];

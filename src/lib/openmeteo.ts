@@ -7,7 +7,7 @@
  * build it the same way. `cachedJson` serves a URL from the snapshot when it is
  * fresh and calls Open-Meteo directly otherwise.
  */
-import { NBM } from '../config/models';
+import { ENSEMBLES, NBM } from '../config/models';
 import { cachedJson, type Priority } from './cache';
 import type { ProfileLevel } from './physics';
 import type { Series } from './stats';
@@ -144,13 +144,14 @@ export function profileUrl(pt: Omit<Point, 'elevation'>, modelIds: string[], tz:
   })}`;
 }
 
-/** All members of one ensemble at one point. */
 /**
- * `withFreezingLevel: false` drops freezing_level_height (about a quarter of
- * the request's weighted cost); the snowpack projection doesn't use it.
+ * All members of one ensemble at one point. freezing_level_height (about a quarter of the request's
+ * weighted cost) is asked only of ensembles that publish it (`nativeFreezingLevel`); `withFreezingLevel: false`
+ * drops it for those too, since the snowpack projection doesn't use it.
  */
 export function ensembleUrl(pt: Point, modelId: string, tz: string, opts: { pastDays?: number; withFreezingLevel?: boolean } = {}): string {
-  const vars = opts.withFreezingLevel === false ? ENSEMBLE_VARS.filter((v) => v !== 'freezing_level_height') : ENSEMBLE_VARS;
+  const fzl = opts.withFreezingLevel !== false && ENSEMBLES.some((e) => e.id === modelId && e.nativeFreezingLevel);
+  const vars = fzl ? ENSEMBLE_VARS : ENSEMBLE_VARS.filter((v) => v !== 'freezing_level_height');
   return `${ENSEMBLE}?${qs({
     latitude: pt.lat, longitude: pt.lon, elevation: pt.elevation,
     hourly: vars.join(','),

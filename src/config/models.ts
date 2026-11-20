@@ -87,19 +87,27 @@ export interface EnsembleDef {
   members: number;
   horizonH: number;
   metaId: string;
+  /**
+   * Open-Meteo returns a freezing level for its members. Only these ensembles are asked for one (it is
+   * weighted like any variable); for the others `deriveMembers` estimates it from each member's temperature.
+   */
+  nativeFreezingLevel: boolean;
 }
 
-/** Ensembles via the Open-Meteo ensemble API (control + perturbed members). */
 /** A forecast range as the UI shows it: '48 h' up to three days, whole days beyond ('5 d'). */
 export const horizonText = (h: number) => (h < 72 ? `${h} h` : `${Math.round(h / 24)} d`);
 
+/** Ensembles via the Open-Meteo ensemble API (control + perturbed members). */
 export const ENSEMBLES: EnsembleDef[] = [
-  { id: 'ecmwf_ifs025', label: 'ECMWF ENS', family: 'ECMWF', slot: 1, members: 51, horizonH: 360, metaId: 'ecmwf_ifs025_ensemble' },
-  { id: 'ecmwf_aifs025', label: 'AIFS ENS', family: 'ECMWF', slot: 5, members: 51, horizonH: 360, metaId: 'ecmwf_aifs025_ensemble' },
-  { id: 'ncep_gefs_seamless', label: 'GEFS', family: 'NOAA', slot: 2, members: 31, horizonH: 384, metaId: 'ncep_gefs025' },
-  { id: 'gem_global', label: 'GEPS', family: 'ECCC', slot: 3, members: 21, horizonH: 384, metaId: 'cmc_gem_geps' },
-  { id: 'icon_global', label: 'ICON-EPS', family: 'DWD', slot: 4, members: 40, horizonH: 180, metaId: 'dwd_icon_eps' },
-  { id: 'ukmo_global_ensemble_20km', label: 'MOGREPS-G', family: 'UKMO', slot: 6, members: 18, horizonH: 240, metaId: 'ukmo_global_ensemble_20km' },
+  { id: 'ecmwf_ifs025', label: 'ECMWF ENS', family: 'ECMWF', slot: 1, members: 51, horizonH: 360, metaId: 'ecmwf_ifs025_ensemble', nativeFreezingLevel: false },
+  { id: 'ecmwf_aifs025', label: 'AIFS ENS', family: 'ECMWF', slot: 5, members: 51, horizonH: 360, metaId: 'ecmwf_aifs025_ensemble', nativeFreezingLevel: false },
+  { id: 'ncep_gefs_seamless', label: 'GEFS', family: 'NOAA', slot: 2, members: 31, horizonH: 384, metaId: 'ncep_gefs025', nativeFreezingLevel: true },
+  { id: 'gem_global', label: 'GEPS', family: 'ECCC', slot: 3, members: 21, horizonH: 384, metaId: 'cmc_gem_geps', nativeFreezingLevel: false },
+  { id: 'icon_global', label: 'ICON-EPS', family: 'DWD', slot: 4, members: 40, horizonH: 180, metaId: 'dwd_icon_eps', nativeFreezingLevel: false },
+  {
+    id: 'ukmo_global_ensemble_20km', label: 'MOGREPS-G', family: 'UKMO', slot: 6, members: 18, horizonH: 240, metaId: 'ukmo_global_ensemble_20km',
+    nativeFreezingLevel: false,
+  },
 ];
 
 /** Models offered in run-history comparisons (all global; regional runs are too short). */
