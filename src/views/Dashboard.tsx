@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useRef, useState } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { RESORTS, resortById, type Resort } from '../config/resorts';
 import { stationsFor } from '../config/stations';
 import { RequestError } from '../components/ui';
@@ -8,7 +8,7 @@ import { href } from '../hooks/useRoute';
 import { NOT_IN_SNAPSHOT, SNAPSHOT_MAX_AGE_S, isNotInSnapshot } from '../lib/cache';
 import { windowQuantiles, windowTotals } from '../lib/ensemble';
 import { buildClimatology, percentileRank, seasonIndex } from '../lib/climatology';
-import { dailyCentres, dailyPhase, lastValidTime, windowSum, type DailyRow } from '../lib/forecast';
+import { dailyCentres, dailyPhase, drivenDays, lastValidTime, windowSum, type DailyRow, type DrivenDay } from '../lib/forecast';
 import { latest, loadStation } from '../lib/obs';
 import { useFmt, type Fmt } from '../lib/prefs';
 import { isNum } from '../lib/stats';
@@ -83,10 +83,23 @@ const gridDays = (data: BandForecast, today: string, nDays: number) => data.blen
 /** The grid's ★ needs at least this much snow, cm. */
 export const BEST_DAY_MIN_CM = 2.5;
 
-/** Index of the ★ best day among the grid's days (the snowiest, if it reaches BEST_DAY_MIN_CM), shared by the grid and the cards. */
-function bestDayIndex(days: DailyRow[]): number | null {
-  const i = days.reduce((bi, d, k) => ((d.snowCm ?? 0) > (days[bi]?.snowCm ?? 0) ? k : bi), 0);
-  return (days[i]?.snowCm ?? 0) >= BEST_DAY_MIN_CM ? i : null;
+/**
+ * Index of the ★ best day among the grid's days, shared by the grid and the cards: the snowiest day that reaches
+ * BEST_DAY_MIN_CM and whose total doesn't rest on one model (drivenDays, the Storm tracker's "outlier" flag).
+ */
+function bestDayIndex(days: DailyRow[], driven: Map<string, DrivenDay>): number | null {
+  let best: number | null = null;
+  for (let k = 0; k < days.length; k++) {
+    const snow = days[k].snowCm ?? 0;
+    if (snow < BEST_DAY_MIN_CM || driven.has(days[k].date)) continue;
+    if (best == null || snow > (days[best].snowCm ?? 0)) best = k;
+  }
+  return best;
+}
+
+/** The days whose blend rests on one model, from the models and (when the snapshot has them) the ensembles. */
+function useDrivenDays(resort: Resort, data: BandForecast | undefined, ens: EnsembleSet | undefined): Map<string, DrivenDay> {
+  return useMemo(() => (data ? drivenDays(data, resort.tz, ens) : new Map<string, DrivenDay>()), [data, resort.tz, ens]);
 }
 
 function ResortCard({ resort }: { resort: Resort }) {
@@ -100,7 +113,8 @@ function ResortCard({ resort }: { resort: Resort }) {
   const today = todayIn(resort.tz);
   const nDays = narrow ? NARROW_GRID_DAYS : GRID_DAYS;
   const days = data ? gridDays(data, today, nDays) : [];
-  const bi = bestDayIndex(days);
+  const driven = useDrivenDays(resort, data, ens.data);
+  const bi = bestDayIndex(days, driven);
   const best = bi == null ? null : days[bi];
   const o = obs.data;
   const thin = o?.clim && o.clim.seasons.length < 10;
@@ -256,12 +270,14 @@ function WhereWhen() {
 function WhereWhenRow({ resort, nDays, fmt, narrow }: { resort: Resort; nDays: number; fmt: Fmt; narrow: boolean }) {
   const summit = resort.bands.find((b) => b.key === 'summit')!;
   const fc = useBandForecast(resort, midBand(resort));
+  const ens = useDashboardEnsembles(resort); // the card's request: read once, from the snapshot only
   const today = todayIn(resort.tz);
   const data = fc.data;
   const days = data ? gridDays(data, today, nDays) : [];
   const centres = data ? dailyCentres(data.models, resort.tz) : new Map<string, number>();
   const phases = data ? dailyPhase(data.blend, resort.tz, [summit.elevation]) : new Map();
-  const best = bestDayIndex(days);
+  const driven = useDrivenDays(resort, data, ens.data);
+  const best = bestDayIndex(days, driven);
   return (
     <tr>
       <th scope="row" className="text-left font-semibold pr-2 whitespace-nowrap">
@@ -279,7 +295,7 @@ function WhereWhenRow({ resort, nDays, fmt, narrow }: { resort: Resort; nDays: n
           return (
             <td
               key={d.date}
-              title={`${resort.short} ${d.date}: ${fmt.snow(snow)}${ph && ph !== 'snow' && ph !== 'dry' ? ` (${ph} at summit)` : ''}${low ? ' — fewer than 3 forecast centres' : ''}`}
+              title={`${resort.short} ${d.date}: ${fmt.snow(snow)}${ph && ph !== 'snow' && ph !== 'dry' ? ` (${ph} at summit)` : ''}${low ? ` — fewer than ${LOW_CENTRES} forecast centres` : ''}${driven.has(d.date) ? ' — outlier: this total rests on one model (see the Storm tracker)' : ''}`}
               className="text-center rounded-md tnum align-middle"
               style={{
                 minWidth: narrow ? 36 : 56, height: 40,
