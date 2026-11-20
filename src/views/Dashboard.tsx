@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { Fragment, useEffect, useRef, useState } from 'react';
 import { RESORTS, resortById, type Resort } from '../config/resorts';
 import { stationsFor } from '../config/stations';
 import { RequestError } from '../components/ui';
@@ -221,6 +221,8 @@ function WeekTotal({ resort, data, ens, now, fmt }: {
 /** Days the Where & when grid shows, on desktop and on phones. */
 export const GRID_DAYS = 10;
 export const NARROW_GRID_DAYS = 6;
+/** Below this a grid cell shows "–" (none to speak of), cm. */
+const TRACE_CM = 0.5;
 
 /**
  * Where & when: every resort × the next 10 days on one shared scale, so the
@@ -234,7 +236,11 @@ function WhereWhen() {
     <section className="card p-4 mt-4" aria-labelledby="ww-title">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <h2 id="ww-title" className="text-base font-semibold">Where & when</h2>
-        <span className="text-xs text-ink-2">Blended snowfall at mid-mountain · ★ best day · outlined: fewer than 3 forecast centres · R/M: rain or mixed at the summit</span>
+        <span className="text-xs text-ink-2">
+          {/* Items stay whole when the legend wraps on phones. */}
+          {['Blended snowfall at mid-mountain', `–: under ${fmt.snow(TRACE_CM, 1)}`, '★ best day', `outlined: fewer than ${LOW_CENTRES} forecast centres`, 'R/M: rain or mixed at the summit']
+            .map((item, i) => <Fragment key={item}>{i > 0 && ' · '}<span className="whitespace-nowrap">{item}</span></Fragment>)}
+        </span>
       </div>
       <div className="overflow-x-auto mt-2">
         <table className="w-full text-[12px] border-separate" style={{ borderSpacing: 3 }}>
@@ -269,7 +275,7 @@ function WhereWhenRow({ resort, nDays, fmt, narrow }: { resort: Resort; nDays: n
           const step = snowClass(snow) + 1;
           const low = (centres.get(d.date) ?? 0) < LOW_CENTRES;
           const ph = phases.get(d.date)?.[0];
-          const filled = snow >= 0.5 && !low;
+          const filled = snow >= TRACE_CM && !low;
           return (
             <td
               key={d.date}
@@ -279,12 +285,12 @@ function WhereWhenRow({ resort, nDays, fmt, narrow }: { resort: Resort; nDays: n
                 minWidth: narrow ? 36 : 56, height: 40,
                 background: filled ? `var(--snow-${step})` : 'var(--surface-2)',
                 color: filled ? `var(--snow-ink-${step})` : 'var(--ink-2)',
-                border: low && snow >= 0.5 ? `1.5px solid var(--snow-${step})` : '1.5px solid transparent',
+                border: low && snow >= TRACE_CM ? `1.5px solid var(--snow-${step})` : '1.5px solid transparent',
               }}
             >
               <div className="text-[10px] opacity-80">{i === 0 ? 'Today' : narrow ? weekday(d.date).slice(0, 2) : dayLabel(d.date)}</div>
               <div className="font-semibold">
-                {snow >= 0.5 ? fmt.snow(snow).replace(/ (cm|in)$/, '') : '–'}
+                {snow >= TRACE_CM ? fmt.snow(snow).replace(/ (cm|in)$/, '') : '–'}
                 {i === best && <span aria-label="best day"> ★</span>}
                 {(ph === 'rain' || ph === 'mixed') && <span className="text-[10px]" aria-label={ph}> {ph === 'rain' ? 'R' : 'M'}</span>}
               </div>
