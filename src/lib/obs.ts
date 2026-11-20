@@ -18,18 +18,52 @@ export interface StationFile {
 export type Variable = 'depthCm' | 'sweMm';
 export type Series = 'depthCm' | 'sweMm' | 'newSnowCm';
 
+const DATE = /^\d{4}-\d{2}-\d{2}$/;
+const isDate = (x: unknown): x is string => typeof x === 'string' && DATE.test(x);
+const isSeries = (x: unknown): x is (number | null)[] =>
+  Array.isArray(x) && x.every((v) => v === null || (typeof v === 'number' && Number.isFinite(v)));
+
+/**
+ * A station file's shape, checked like any untrusted input (the commit job's validator,
+ * scripts/validate_obs.py, also bounds the values). Null if it isn't the file for `id`.
+ */
+export function parseStationFile(x: unknown, id: string): StationFile | null {
+  if (typeof x !== 'object' || x == null) return null;
+  const { id: fileId, updated, start, depthCm, sweMm = null, newSnowCm = null, lastDepthDate = null, lastSweDate = null } =
+    x as Record<string, unknown>;
+  if (fileId !== id || typeof updated !== 'string' || !isDate(start) || !isSeries(depthCm)) return null;
+  const sameLength = (v: unknown): v is (number | null)[] | null => v === null || (isSeries(v) && v.length === depthCm.length);
+  if (!sameLength(sweMm) || !sameLength(newSnowCm)) return null;
+  if ((lastDepthDate !== null && !isDate(lastDepthDate)) || (lastSweDate !== null && !isDate(lastSweDate))) return null;
+  return { id, updated, start, depthCm, sweMm, newSnowCm, lastDepthDate, lastSweDate };
+}
+
 const cache = new Map<string, Promise<StationFile | null>>();
 
+/**
+ * A station's file (null: none for this station). A missing or malformed file is remembered for
+ * the page; a network or server error isn't, so the next use (a retry, another view) fetches again.
+ */
 export function loadStation(id: string): Promise<StationFile | null> {
-  if (!cache.has(id)) {
-    cache.set(
-      id,
-      fetch(`${import.meta.env.BASE_URL}data/obs/${id}.json`, { cache: 'no-cache' })
-        .then((r) => (r.ok ? (r.json() as Promise<StationFile>) : null))
-        .catch(() => null),
-    );
-  }
-  return cache.get(id)!;
+  const hit = cache.get(id);
+  if (hit) return hit;
+  const p = fetch(`${import.meta.env.BASE_URL}data/obs/${id}.json`, { cache: 'no-cache' })
+    .then(async (r) => {
+      if (r.status === 404) return null;
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const text = await r.text();
+      try {
+        return parseStationFile(JSON.parse(text), id);
+      } catch {
+        return null; // not JSON (a dev server's HTML fallback): no file
+      }
+    })
+    .catch(() => {
+      cache.delete(id);
+      return null;
+    });
+  cache.set(id, p);
+  return p;
 }
 
 export function valueOn(f: StationFile, v: Series, date: string): number | null {

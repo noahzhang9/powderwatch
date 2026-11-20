@@ -160,6 +160,8 @@ export const SNAPSHOT_FILE_RE = /^[0-9a-f]{16}-[0-9a-f]{10}\.json$/;
 export const WPC_FILE_RE = /^wpc-[0-9a-f]{10}\.json$/;
 /** A tab open this long re-reads the manifest once, to pick up the next snapshot. */
 const MANIFEST_RELOAD_MS = 60 * 60 * 1000;
+/** After a failed manifest read (network error, HTTP error other than 404), how soon to try again. */
+export const MANIFEST_RETRY_MS = 30 * 1000;
 
 export interface SnapshotEntry {
   file: string;
@@ -244,21 +246,37 @@ interface LoadedManifest {
   wpc: SnapshotEntry | null;
 }
 
-let manifest: { loadedAt: number; data: Promise<LoadedManifest | null> } | null = null;
+const parseJson = (text: string): unknown => {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+};
 
-/** The manifest, fetched once per page (revalidated, never a stale HTTP-cache copy). */
+let manifest: { loadedAt: number; reloadMs: number; data: Promise<LoadedManifest | null> } | null = null;
+
+/**
+ * The manifest, fetched once per page (revalidated, never a stale HTTP-cache copy). A 404 means no
+ * snapshot is deployed (dev server, first deploy) and everything goes live until the next reload; a
+ * failed read is retried soon, so one bad response doesn't send a tab live (and toward 429s) for an hour.
+ */
 function loadManifest(): Promise<LoadedManifest | null> {
-  if (!manifest || Date.now() - manifest.loadedAt > MANIFEST_RELOAD_MS) {
-    manifest = {
-      loadedAt: Date.now(),
-      data: fetch(`${snapshotBase()}${SNAPSHOT_MANIFEST}`, { cache: 'no-cache' })
-        .then((r) => (r.ok ? r.json() : null))
-        .then((json: unknown) => {
-          const entries = parseManifest(json);
-          return entries && { entries, generatedAt: manifestGeneratedAt(json), wpc: manifestWpc(json) };
-        })
-        .catch(() => null), // no snapshot deployed (dev server, first deploy): everything goes live
+  if (!manifest || Date.now() - manifest.loadedAt > manifest.reloadMs) {
+    const next = { loadedAt: Date.now(), reloadMs: MANIFEST_RELOAD_MS, data: Promise.resolve<LoadedManifest | null>(null) };
+    const retrySoon = () => {
+      next.reloadMs = MANIFEST_RETRY_MS;
+      return null;
     };
+    next.data = fetch(`${snapshotBase()}${SNAPSHOT_MANIFEST}`, { cache: 'no-cache' })
+      .then((r) => (r.ok ? r.text() : r.status === 404 ? null : retrySoon()))
+      .then((text) => {
+        const json = text == null ? null : parseJson(text); // not JSON (a dev server's HTML fallback): no snapshot
+        const entries = parseManifest(json);
+        return entries && { entries, generatedAt: manifestGeneratedAt(json), wpc: manifestWpc(json) };
+      })
+      .catch(retrySoon); // network error
+    manifest = next;
   }
   return manifest.data;
 }

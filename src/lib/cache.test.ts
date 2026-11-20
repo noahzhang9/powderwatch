@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
-  NOT_IN_SNAPSHOT, NotInSnapshotError, SNAPSHOT_INTERVAL_H, SNAPSHOT_MAX_AGE_S, cachedJson, clearCache, isSnapshotOnly, manifestGeneratedAt,
+  MANIFEST_RETRY_MS, NOT_IN_SNAPSHOT, NotInSnapshotError, SNAPSHOT_INTERVAL_H, SNAPSHOT_MAX_AGE_S, cachedJson, clearCache, isSnapshotOnly, manifestGeneratedAt,
   parseManifest, snapshotInfo, snapshotIsFresh, snapshotUse, type SnapshotEntry,
 } from './cache';
 
@@ -140,6 +140,27 @@ describe('cachedJson with a forecast snapshot', () => {
     vi.stubGlobal('fetch', async (input: RequestInfo | URL) =>
       String(input).startsWith('https://') ? json({ live: String(input) }) : new Response('<!doctype html>', { headers: { 'content-type': 'text/html' } }));
     expect(await cachedJson(A, TTL)).toEqual({ live: A });
+  });
+
+  it('retries a failed manifest read after 30 s, but keeps a missing one for the hour', async () => {
+    vi.stubGlobal('fetch', async (input: RequestInfo | URL) => {
+      const url = String(input);
+      calls.push({ url });
+      return url.startsWith('https://') ? json({ live: url }) : new Response('unavailable', { status: 503 });
+    });
+    expect(await cachedJson(A, TTL)).toEqual({ live: A });
+    vi.setSystemTime(NOW + MANIFEST_RETRY_MS + 1000);
+    serve({ manifest: manifest({ [B]: { file: FILE_B, fetchedAt: NOW_S } }), files: { [FILE_B]: { snap: 'b' } } });
+    expect(await cachedJson(B, TTL)).toEqual({ snap: 'b' });
+    expect(manifestLoads()).toHaveLength(2);
+
+    await clearCache();
+    calls = [];
+    serve({}); // 404: no snapshot deployed
+    await cachedJson(A, TTL);
+    vi.setSystemTime(NOW + 2 * MANIFEST_RETRY_MS + 2000);
+    await cachedJson(B, TTL);
+    expect(manifestLoads()).toHaveLength(1);
   });
 
   it('goes live when a fresh entry points at a missing file', async () => {
