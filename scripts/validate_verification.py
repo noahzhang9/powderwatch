@@ -190,7 +190,7 @@ def check_cycle(rec, stem):
     seen = set()
     for i, p in enumerate(rec['points']):
         where = f'points[{i}]'
-        keys(p, ('resort', 'kind', 'id', 'lat', 'lon', 'elev', 'tz', 'days', 'models', 'ens'), ('blend',), where)
+        keys(p, ('resort', 'kind', 'id', 'lat', 'lon', 'elev', 'tz', 'days', 'models', 'ens'), ('blend', 'nbm'), where)
         point_head(p, where)
         need((p['resort'], p['id']) not in seen, f'{where}: duplicate point')
         seen.add((p['resort'], p['id']))
@@ -198,6 +198,9 @@ def check_cycle(rec, stem):
         if 'blend' in p:
             need(p['kind'] == 'mid', f'{where}: only mid points have a blend')
             fields(p['blend'], DAYS, f'{where}.blend')
+        if 'nbm' in p:
+            need(p['kind'] == 'mid', f'{where}: only mid points have NBM')
+            fields(p['nbm'], DAYS, f'{where}.nbm', MODEL_FIELDS)
         models(p['models'], DAYS, f'{where}.models')
         ensemble(p['ens'], DAYS, t, f'{where}.ens')
     need(isinstance(rec['skipped'], list) and len(rec['skipped']) <= MAX_POINTS, 'skipped')

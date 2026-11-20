@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { ENSEMBLES, MODELS } from '../src/config/models';
+import { ENSEMBLES, MODELS, NBM } from '../src/config/models';
 import { RESORTS } from '../src/config/resorts';
 import { STATIONS } from '../src/config/stations';
 import type { StationFile } from '../src/lib/obs';
@@ -26,7 +26,7 @@ const VALIDATOR = fileURLToPath(new URL('./validate_verification.py', import.met
 const metaAt = (inits: Record<string, string>): Record<string, RunMeta | null> =>
   Object.fromEntries(Object.entries(inits).map(([id, iso]) => [metaIdOf(id), { initUnix: T(iso), availableUnix: T(iso) + 4 * 3600, updateIntervalSec: 21600 }]));
 const allAt = (iso: string, over: Record<string, string> = {}) =>
-  metaAt({ ...Object.fromEntries([...new Set(RESORTS.flatMap((r) => r.models))].map((id) => [id, iso])), ...over });
+  metaAt({ ...Object.fromEntries([...new Set([...RESORTS.flatMap((r) => r.models), NBM.id])].map((id) => [id, iso])), ...over });
 
 describe('cycle choice', () => {
   it('uses the full-length cycles the catalogue lists for every global model', () => {
@@ -83,7 +83,8 @@ function fakeResponse(url: string): OmResponse {
   const time = Array.from({ length: n }, (_, i) => start + i * 3600);
   const vars = q.get('hourly')!.split(',');
   const models = q.get('models')!.split(',');
-  const value = (v: string) => (v.startsWith('temperature') ? T_C : v.startsWith('relative_humidity') ? RH : v.startsWith('geopotential') ? 1500 : v === 'freezing_level_height' ? 1200 : P_MM);
+  const value = (v: string) => (v.startsWith('temperature') ? T_C : v.startsWith('relative_humidity') ? RH : v.startsWith('geopotential') ? 1500
+    : v === 'freezing_level_height' ? 1200 : v === 'snowfall_height' ? 900 : P_MM);
   const hourly: OmResponse['hourly'] = { time };
   const ensemble = u.host.startsWith('ensemble');
   for (const m of models) {
@@ -153,6 +154,16 @@ describe('verification record', () => {
     expect(ens.win.days).toEqual([3, 7, 10]);
     expect(ens.win.snow.p50[0]).toBeCloseTo(3 * 24 * SNOW_PER_H, 0);
     expect(mid.blend!.centres![0]).toBe(5); // ECMWF, NOAA, ECCC, DWD, UKMO
+  });
+
+  it("archives NOAA NBM's own product at the mid band of US resorts, with its run", () => {
+    expect(CRYSTAL.officialGuidance).toBe(true);
+    // The canned response has 1 cm/h of "snowfall": NBM's own field is archived as published, not re-derived.
+    expect(mid.nbm!.snow).toEqual(Array(RECORD_DAYS).fill(24));
+    expect(mid.nbm!.precip[0]).toBe(24);
+    expect(mid.nbm!.rain).toBeUndefined();
+    expect(rec.runs.ncep_nbm_conus).toBe('2026-11-20T00:00Z');
+    expect(morse.nbm).toBeUndefined();
   });
 
   it("archives each station's own point where the snapshot has it, and says why it skipped the others", () => {

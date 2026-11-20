@@ -1,4 +1,4 @@
-import { ENSEMBLES, MODELS } from '../config/models';
+import { ENSEMBLES, MODELS, NBM } from '../config/models';
 import { RESORTS } from '../config/resorts';
 import { STATIONS } from '../config/stations';
 import { SNAPSHOT_INTERVAL_H, SNAPSHOT_MAX_AGE_S } from '../lib/cache';
@@ -44,6 +44,7 @@ export function About() {
       <ul className="list-disc pl-5">
         <li>Blend: every forecast centre (ECMWF, NOAA, ECCC, DWD, UK Met Office, MeteoSwiss) gets equal weight each hour, split among its models that have data. Snow and rain use the weighted mean (totals stay consistent across daily and cumulative views); temperatures and levels use the weighted median.</li>
         <li>High-resolution regional models join the blend only within their range (HRRR/HRDPS 48 h, ICON-CH1 33 h, ICON-CH2 120 h).</li>
+        <li>Official guidance (below) is never part of the blend.</li>
         <li>Ensembles: {ENSEMBLES.map((e) => `${e.label} (${e.members})`).join(', ')}. Centres are weighted equally, members equally within a centre. Probabilities are model spread until verified against observations.</li>
         <li>The blend is not assumed to be more accurate than any single model. Skill weighting waits on verification data.</li>
       </ul>
@@ -91,6 +92,19 @@ export function About() {
         </li>
       </ul>
 
+      <h2>Official guidance (US resorts)</h2>
+      <ul className="list-disc pl-5">
+        <li>
+          "Compare with official guidance" on the Storm tracker adds NOAA's own products as benchmarks. They are shown as NOAA publishes them, not run
+          through the physics above, because their calibration is the point; they never join the blend, the centre counts or any total.
+        </li>
+        <li>
+          {NBM.long} ({NBM.label}): NOAA's statistically calibrated blend of many models, updated hourly, about 11 days ahead. The daily
+          chart marks its own snowfall per local day with a short dark bar. It is taken at the band's coordinates on NBM's {NBM.resolutionKm} km grid and
+          is not adjusted to the band's elevation.
+        </li>
+      </ul>
+
       <h2>Verification archive</h2>
       <ul className="list-disc pl-5">
         <li>
@@ -98,6 +112,7 @@ export function About() {
           model) and at each station's own coordinates (the snowpack-scenario models), with the ensemble's 10th/50th/90th percentiles and its chances
           for the "Chance of snow totals" thresholds ({CHANCE_THRESHOLDS_CM.imperial.map((t) => fmt.snow(t, 0)).join(', ')}). It reuses the snapshot's
           responses, so it costs no extra Open-Meteo calls, and lives on a separate <code>data/verification</code> branch of the repository.
+          At US resorts it also keeps {NBM.label}'s own forecast at mid.
         </li>
         <li>Those records are what the verification against station measurements will use. Until then, every chance on this site is model spread.</li>
       </ul>

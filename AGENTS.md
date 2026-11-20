@@ -59,6 +59,8 @@ If parity drifts, the cache silently stops working, and visits fall back to live
 
 **One physics for all models.** Never use a provider's own snowfall field for display; it's for comparison only (Open-Meteo's is a fixed 7:1 ratio). Snowfall, phase and snow level go through `physics.ts`, so every model is treated the same.
 
+**Exception: benchmarks show the provider's own product.** Official guidance (`NBM` in `models.ts`, WPC in `src/lib/benchmarks.ts`) is shown as the provider publishes it, because its calibration is the point: NOAA NBM's own snowfall (its ASNOW field) and snow level, never re-derived through `physics.ts`. Benchmarks are not in `MODELS`, never enter the family-balanced blend, centre counts or any total, get no model colour slot (they draw in the ink colour with their own mark), and appear only behind the Storm tracker's "Compare with official guidance" toggle (`officialGuidance` resorts, i.e. inside NOAA's CONUS products).
+
 **Use pure single-model ids.** Don't use the `*_seamless` ids for deterministic models: they splice in regional models and would double-count them in the blend. `ncep_gefs_seamless` for the GEFS ensemble is the deliberate exception (it only extends one ensemble's range).
 
 **Workflow security** (`.github/workflows/refresh-and-deploy.yml`):
@@ -82,6 +84,7 @@ If parity drifts, the cache silently stops working, and visits fall back to live
 **Data sources and licences.**
 - SLF, BC ASWS and NWAC send no CORS headers, and SLF's terms forbid per-user calls. Fetch them only from `scripts/fetch-obs.ts` on the schedule, never from the browser.
 - NWAC has no public API or licence: links only.
+- NOAA NBM comes through Open-Meteo (`ncep_nbm_conus`, CONUS only, about 11 days, hourly runs), so it needs no new browser host. The snapshot holds it at mid for the `officialGuidance` resorts; other bands are fetched live when the toggle is on.
 - Keep the attribution strings in `stations.ts`, the footer in `App.tsx` and `public/data/NOTICE.md` intact, and update them when adding a source.
 - Never commit `dist/`, `.cache/` or snapshot files. Verification records go to the `data/verification` branch only, never `main`.
 
@@ -95,6 +98,7 @@ The site stays calm and scannable as data sources are added. A new feature that 
 - **New data sources are opt-in.** Benchmark sources (NOAA NBM, WPC probabilities, SNODAS, satellite snow cover) go behind a toggle or an extra choice. Never add a new line or panel to a default view.
 - **One main question per screen.** Supporting material sits under one clearly labelled **More detail** disclosure, closed by default, keyboard-accessible, with its state in the URL hash query (`more=1`).
   - Storm tracker: "how much snow, and do the models agree?" Open by default: the band/view controls, the headline tiles, the daily snowfall chart with its rain and phase/gust strips and legend, "Chance of snow totals", and a one-line run-to-run summary. Under More detail: the full run-change table, freezing level & snow level, temperature, the ensemble plume, and the last 7 days measured vs modelled.
+  - "Compare with official guidance" (US resorts; off by default, `official=1` in the hash query) is the one switch for benchmark sources: NOAA NBM's mark on the daily chart, its legend entry, tooltip row and table column. With it off, nothing about them is shown or requested.
   - Run history: the run-by-run trend chart and its summary. Under More detail: storm evolution by run and the run table.
 - **Collapsed panels request nothing until opened.** Mount them only when the disclosure opens (`Disclosure` in `src/components/ui.tsx`), and keep below-the-fold ones in `Lazy`. A panel's requests stay in the snapshot plan if they were there, so opening it doesn't go live; the default screen's requests must stay what `planSnapshot` covers.
 - **Explanations live in hovers, expanders and the Methods page.** Charts default to their simplest form; extra series (single-model scenarios, Open-Meteo's raw snowfall) start switched off behind a toggle.

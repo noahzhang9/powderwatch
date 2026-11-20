@@ -91,9 +91,17 @@ Notes on the ensembles:
 - GEFS uses `ncep_gefs_seamless`: 0.25° grid to day 10, then 0.5° to day 16.
 - For ECMWF ENS and AIFS ENS, each member's freezing level is estimated from its downscaled temperature (6.5 °C/km).
 
+**Official guidance** (benchmarks at Crystal, Snoqualmie and Stevens, behind one toggle)
+
+| Benchmark | Source | What is shown | Range |
+|---|---|---|---|
+| NOAA NBM (`ncep_nbm_conus`) | NOAA, via Open-Meteo | NBM's own snowfall per local day (its calibrated ASNOW field, not PowderWatch physics), on its 2.5 km grid | about 11 days, hourly runs |
+
+- Benchmarks are the provider's finished product, so they are the one exception to "one physics for all models". They never join the blend, the centre counts or any total, and they have no model colour slot.
+- NBM is taken at the band's coordinates; its snowfall is not adjusted to the band's elevation.
+
 Candidates not yet added:
 
-- **NBM** (NOAA's calibrated National Blend; covers Crystal) as a reference line.
 - **AROME-France HD** (1.3 km; covers Verbier, but publishes no snowfall).
 
 **Views**
@@ -116,6 +124,7 @@ Candidates not yet added:
 - **Freezing level vs. snow level:** freezing level per model, blended snow level, and horizontal rules at the resort's bands.
 - **Temperature** at the selected band, per model.
 - **Model chips:** each chip toggles a model and shows its run time, publish delay and data horizon.
+- **Compare with official guidance** (US resorts; off by default, `official=1` in the URL): the daily chart gains NBM's daily snowfall as a short dark bar on each day, with its own legend entry (and run time), a tooltip row and a table column. With the toggle off, nothing about it is shown or requested.
 - **Totals:**
   - 24 h, 3, 7 and 14 days, each with the model range and the ensemble 10–90% range.
   - Snow level during precipitation over the next 72 h.
@@ -281,6 +290,7 @@ These remain links.
 | Deterministic models | `api.open-meteo.com/v1/forecast` | Downscaled with `elevation` (lapse rate; RH held constant). |
 | Pressure levels | same | Seven levels from 1000 to 500 hPa. ECMWF has no 800 hPa level. |
 | Ensembles | `ensemble-api.open-meteo.com/v1/ensemble` | Member keys: `var`, `var_member01…`. |
+| NOAA NBM (benchmark) | `api.open-meteo.com/v1/forecast?models=ncep_nbm_conus` | CONUS only. `snowfall` is NBM's own ASNOW (cm), `snowfall_height` its SNOWLVL (m); hourly to 36 h, 6-hourly sums after that, spread over the hours by Open-Meteo. Hourly runs; run timing at `data/ncep_nbm_conus/static/meta.json`. 1 weighted call per request. |
 | Past runs | `single-runs-api.open-meteo.com/v1/forecast?run=…` | Retention about 5 months. Requests for runs that aren't published yet return HTTP 400. |
 | Run timing | `api.open-meteo.com/data/<id>/static/meta.json` | Initialisation time, availability time and update interval. |
 | Previous runs (archive backfill) | `previous-runs-api.open-meteo.com/v1/forecast` | `<var>_previous_day1…7`: each hour as forecast 1–7 days earlier, at fixed 24 h lead offsets (so one day mixes runs). Deterministic models only, archived from January 2024. Used once, by `npm run backfill:verification`. |
@@ -357,8 +367,8 @@ GitHub Action (every 4 h at :20 UTC, full station history in the Sunday 00:20 ru
 - **Forecast snapshot** (`scripts/snapshot-forecasts.ts`, `npm run snapshot`):
   - Fetches the Open-Meteo responses the first screens request and writes them unmodified to `dist/data/fc/`, with `manifest.json` mapping each request URL to `{file, fetchedAt}`. File names hash the URL and the content, so each file is immutable; the manifest is fetched with `no-cache`.
   - **URL parity:** the browser and the script build every URL with the same pure functions (`src/lib/openmeteo.ts` for parameters, `src/lib/requests.ts` for points, model lists and day counts). A unit test replays the views' requests and requires the planned list to match exactly.
-  - **Contents, per resort:** the deterministic forecast for all three bands; the pressure profile and all six ensembles at mid-mountain; run timing for every model; the run 12 h before each global model's latest run, at mid (run-change panel); the last-7-days requests at each station and at mid; and the snowpack-projection inputs (six ensembles and the single-model scenarios, with the `past_days` that station's latest reading implies) at the station the Snowpack tab opens by default, then at the other stations while the budget allows (§8). When a resort's local date changes within the next 4.5 h, the next day's snowpack variant is included too.
-  - **Live only:** Run-history past runs, and ensembles at base and summit.
+  - **Contents, per resort:** the deterministic forecast for all three bands; the pressure profile and all six ensembles at mid-mountain; run timing for every model; the run 12 h before each global model's latest run, at mid (run-change panel); NOAA NBM at mid for the three US resorts ("Compare with official guidance", and archived); the last-7-days requests at each station and at mid; and the snowpack-projection inputs (six ensembles and the single-model scenarios, with the `past_days` that station's latest reading implies) at the station the Snowpack tab opens by default, then at the other stations while the budget allows (§8). When a resort's local date changes within the next 4.5 h, the next day's snowpack variant is included too.
+  - **Live only:** Run-history past runs, ensembles at base and summit, and NBM at base and summit.
   - **Freshness:** a copy serves for 4.5 h after it was fetched (`SNAPSHOT_MAX_AGE_S`). The job runs every 4 h (`SNAPSHOT_INTERVAL_H`), so a scheduled run delayed by more than about 30 minutes leaves a gap that is served live.
   - **Politeness:** User-Agent with a contact URL (`PW_CONTACT`), at most 3 concurrent requests, paced under 400 weighted calls a minute (free tier: 600), 429/5xx retried with backoff and `Retry-After`, and a per-run budget in weighted calls.
   - **Failure handling:** a failed request is left out of the manifest and the browser fetches it live. The snapshot step cannot block the deploy: it has a 7-minute internal deadline, a 9-minute step timeout and `continue-on-error`.
@@ -366,7 +376,7 @@ GitHub Action (every 4 h at :20 UTC, full station history in the Sunday 00:20 ru
 
 - **Verification archive** (`scripts/verification.ts`, branch `data/verification`):
   - **Which runs:** every snapshot run names the newest 00Z or 12Z cycle that all current global models have run, from the run metadata it already fetches (the cycle hours are the model catalogue's full-length runs; a model more than one cycle behind is listed as lagging rather than holding the cycle back). It writes that cycle's record, and the `archive` job keeps the first record it sees for each cycle and never overwrites it. So each cycle is archived from the first snapshot run that carried it; which run that is depends on when the slowest global model publishes.
-  - **What:** for local days 1–10 (day 1 is the first local day starting after the cycle time; days follow `toDaily`'s convention), at each resort's mid band the blend (with its daily centre count) and each model, and at each station's own point each snowpack-scenario model: daily snowfall through PowderWatch physics, precipitation (negative hourly values, an artefact of some models' de-accumulated output, count as none, as in the rain/snow split), rain, Tmin/Tmax and snow-level range (from the resort's pressure profile, as in the views). Ensembles at both: daily p10/p50/p90 of snowfall and precipitation, the chance of each "Chance of snow totals" threshold (1, 4, 8, 12, 20 in) per day, and the same over 3, 7 and 10 days from day 1. Plus each model's run time and the stations skipped and why. A day counts only when every hour of it has data.
+  - **What:** for local days 1–10 (day 1 is the first local day starting after the cycle time; days follow `toDaily`'s convention), at each resort's mid band the blend (with its daily centre count) and each model, and at each station's own point each snowpack-scenario model: daily snowfall through PowderWatch physics, precipitation (negative hourly values, an artefact of some models' de-accumulated output, count as none, as in the rain/snow split), rain, Tmin/Tmax and snow-level range (from the resort's pressure profile, as in the views). At the US resorts' mid band, NBM's own snowfall, precipitation, Tmin/Tmax and snow level too. Ensembles at both: daily p10/p50/p90 of snowfall and precipitation, the chance of each "Chance of snow totals" threshold (1, 4, 8, 12, 20 in) per day, and the same over 3, 7 and 10 days from day 1. Plus each model's run time and the stations skipped and why. A day counts only when every hour of it has data.
   - **No extra Open-Meteo calls:** the record reuses the snapshot's responses. Station points come from the Snowpack tab's requests, so a station is archived only when this run's snapshot holds them; a station whose latest reading is too old for a projection (`no-projection`), or whose requests the run skipped for budget (`not-in-snapshot`), is listed in `skipped`. Ensemble run times are not in the snapshot and are not recorded.
   - **Format:** one JSON file per cycle, `cycles/YYYY-MM/2026-11-20T00Z.json`, about 40–60 kB (10–14 kB gzipped), two a day: 30–45 MB a year as JSON, about a quarter of that as git stores it. Per-cycle files are append-only by construction (a new file per cycle, none ever edited), need no merge, and let the archive job keep the first run's record by checking whether the file exists.
   - **Path:** the read-only `build` job writes the record to `.cache/verification/` (never into `dist/`) and uploads it as an artifact (kept 7 days, so a failed archive job can be re-run). The `archive` job holds `contents: write` and runs no npm code: it copies `scripts/validate_verification.py` from `main`, switches to `data/verification` (an orphan branch, created on first use), validates the record (allowed key set, finite bounded numbers, 512 kB cap, strict file names) and re-serialises it, then commits and pushes to that branch only. Deploy does not depend on it.
@@ -405,12 +415,11 @@ GitHub Action (every 4 h at :20 UTC, full station history in the Sunday 00:20 ru
 
 **Phase 5 — Personalization & alerts**
 
-Done: trips.
+Done: trips; NOAA NBM as an opt-in benchmark ("Compare with official guidance").
 
 Next:
 
 - Alerts through a scheduled job: storm totals over a threshold, the snow level crossing the summit, or a run-to-run jump bigger than X.
-- Optional NBM line.
 
 **Success criteria (measurable):**
 
@@ -433,9 +442,9 @@ Next:
 - **Open-Meteo budget** (as of 2026-11-20, five resorts):
   - Open-Meteo counts weighted calls: variables × models (× members, for ensembles) ÷ 10, scaled by days ÷ 14 beyond two weeks, at least 1 per request. Each response reports its cost in `X-RateLimit-Cost`, and `estimateCost` in `scripts/snapshot-plan.ts` reproduces it. Free tier: under 10,000 a day, 5,000 an hour and 600 a minute.
   - Requests carry only the variables their view uses: six surface variables for the forecast views; temperature, humidity and precipitation alone for the last-7-days panel and the snowpack scenarios; no freezing level in the snowpack ensembles.
-  - Typical costs: the six ensembles at mid, about 97 calls; the snowpack ensembles at a station, about 77–82 (1–2 past days); a band's deterministic forecast (8 models), 5.5; a pressure profile, 19.2; a last-7-days request, 2.4; a snowpack scenario request, about 1.9; a single past run, 1; run metadata, 0.
-  - **First screens** (every band's forecast, mid ensembles and profile, run change, last 7 days, the default Snowpack station): about 1,170 calls a run for five resorts. The 04:20 UTC run needs about 1,500, because its snapshot is still served after Pacific midnight and so also carries the next day's snowpack inputs for the four Pacific resorts.
-  - **Schedule and budget:** six scheduled runs a day. Each run's budget is 1,250 calls (`SNAPSHOT_MAX_COST`, a sixth of 7,500), raised by `runBudget` to fit the first screens and never above 2,000. What is left after the first screens buys other stations' snowpack inputs. Planned total: about 7,500 calls a day. A push or manual run adds about 1,200–1,500, so one a day keeps the total under 10,000.
+  - Typical costs: the six ensembles at mid, about 97 calls; the snowpack ensembles at a station, about 77–82 (1–2 past days); a band's deterministic forecast (8 models), 5.5; a pressure profile, 19.2; a last-7-days request, 2.4; a snowpack scenario request, about 1.9; a single past run, 1; NOAA NBM at a point, 1; run metadata, 0.
+  - **First screens** (every band's forecast, mid ensembles and profile, run change, NBM at the US resorts' mid band, last 7 days, the default Snowpack station): about 1,170 calls a run for five resorts. The 04:20 UTC run needs about 1,500, because its snapshot is still served after Pacific midnight and so also carries the next day's snowpack inputs for the four Pacific resorts.
+  - **Schedule and budget:** six scheduled runs a day. Each run's budget is 1,250 calls (`SNAPSHOT_MAX_COST`, a sixth of 7,500), raised by `runBudget` to fit the first screens and never above 2,000. What is left after the first screens buys other stations' snowpack inputs. Planned total: about 7,500 calls a day (the plan's simulation of the six scheduled runs: 7,511, of which NBM is 18; a test keeps it under 9,000 with the first screens in every run). A push or manual run adds about 1,200–1,500, so one a day keeps the total under 10,000.
   - **One snapshot run** (measured 2026-11-20 00:24 UTC): 147 requests, no retries or failures, 19.8 MB, 1,233.4 weighted calls (`X-RateLimit-Cost`, equal to the estimate), 181 s. First screens took 1,149.7 of those; the rest bought one more station (Corral Pass). Eight lower-priority snowpack groups were skipped.
   - Full coverage would cost about 1,900–2,900 calls a run, mostly snowpack inputs at up to 15 stations (about 77–88 calls each, twice near a local midnight).
   - **Visitors:** with a fresh snapshot, the dashboard, the Storm tracker at mid (including the lazy panels), the last 7 days and the default Snowpack station make no Open-Meteo calls. Live calls remain for Run history (about 40 small requests per cold load), base/summit ensembles (6 requests, about 97 calls), other snowpack stations (7 requests, about 80 calls), and anything once the snapshot is older than 4.5 h. These count against the visitor's own IP, not the job's. Live forecasts are cached for 30 minutes and past runs indefinitely.

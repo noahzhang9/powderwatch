@@ -28,6 +28,11 @@ export interface Resort {
   /** Deterministic models (global + the regional high-res models that cover it). */
   models: string[];
   links: Link[];
+  /**
+   * Inside NOAA's CONUS products (NBM, WPC winter probabilities): the Storm tracker offers
+   * "Compare with official guidance".
+   */
+  officialGuidance?: boolean;
 }
 
 const GLOBAL = ['ecmwf_ifs025', 'gfs_global', 'gem_global', 'icon_global', 'ecmwf_aifs025_single', 'ukmo_global_deterministic_10km'];
@@ -45,6 +50,7 @@ export const RESORTS: Resort[] = [
       { key: 'summit', label: 'Summit', elevation: 2100, lat: 46.9283, lon: -121.504 },
     ],
     models: [...GLOBAL, 'ncep_hrrr_conus', 'gem_hrdps_continental'],
+    officialGuidance: true,
     links: [
       { label: 'Mountain report', url: 'https://www.crystalmountainresort.com/the-mountain/mountain-report' },
       { label: 'Webcams', url: 'https://www.crystalmountainresort.com/the-mountain/mountain-report-and-webcams/webcams' },
@@ -71,6 +77,7 @@ export const RESORTS: Resort[] = [
       { key: 'summit', label: 'Alpental top', inText: 'Alpental top', elevation: 1652, lat: 47.4388, lon: -121.4428 },
     ],
     models: [...GLOBAL, 'ncep_hrrr_conus', 'gem_hrdps_continental'],
+    officialGuidance: true,
     links: [
       { label: 'Mountain report', url: 'https://www.summitatsnoqualmie.com/mountain-report' },
       { label: 'Webcams', url: 'https://www.summitatsnoqualmie.com/webcams' },
@@ -94,6 +101,7 @@ export const RESORTS: Resort[] = [
       { key: 'summit', label: 'Summit', elevation: 1782, lat: 47.7322, lon: -121.1022 },
     ],
     models: [...GLOBAL, 'ncep_hrrr_conus', 'gem_hrdps_continental'],
+    officialGuidance: true,
     links: [
       { label: 'Snow & weather report', url: 'https://www.stevenspass.com/the-mountain/mountain-conditions/weather-report.aspx' },
       { label: 'Mountain cams', url: 'https://www.stevenspass.com/the-mountain/mountain-conditions/mountain-cams.aspx' },

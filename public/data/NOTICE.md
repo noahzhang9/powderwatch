@@ -18,4 +18,7 @@ Forecast data shown on the site comes from [Open-Meteo](https://open-meteo.com/)
 files under `data/fc/` are unmodified copies of Open-Meteo API responses, refreshed every 4 hours;
 the browser fetches anything not in them from Open-Meteo directly.
 
+The "Compare with official guidance" benchmark on the Storm tracker shows the NOAA National Blend of
+Models (NBM, US government data) through Open-Meteo, with NBM's own snowfall.
+
 The MIT licence in `LICENSE` covers the PowderWatch source code only, not this data.

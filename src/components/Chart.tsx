@@ -70,7 +70,7 @@ export function baseOption(p: ChartPalette): EChartsCoreOption {
 }
 
 /** Tooltip row: short line key in series colour, value strong, label secondary. */
-export type TipKey = 'line' | 'dashed' | 'band';
+export type TipKey = 'line' | 'dashed' | 'band' | 'tick';
 
 export function tipRow(color: string, label: string, value: string, p: ChartPalette, key: TipKey = 'line'): string {
   const esc = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
@@ -79,7 +79,9 @@ export function tipRow(color: string, label: string, value: string, p: ChartPale
       ? `<span style="display:inline-block;width:12px;height:10px;border-radius:2px;background:${color}"></span>`
       : key === 'dashed'
         ? `<span style="display:inline-block;width:12px;height:0;border-top:2px dashed ${color}"></span>`
-        : `<span style="display:inline-block;width:12px;height:2px;background:${color}"></span>`;
+        : key === 'tick'
+          ? `<span style="display:inline-block;width:12px;height:4px;border-radius:1px;background:${color};box-shadow:0 0 0 1px ${p.surface}"></span>`
+          : `<span style="display:inline-block;width:12px;height:2px;background:${color}"></span>`;
   return `<div style="display:flex;align-items:center;gap:8px;line-height:18px">` +
     swatch +
     `<b style="color:${p.ink1};min-width:56px;text-align:right" class="tnum">${esc(value)}</b>` +

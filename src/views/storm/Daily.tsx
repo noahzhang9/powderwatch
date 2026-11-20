@@ -6,18 +6,21 @@
 import { useCallback, type CSSProperties } from 'react';
 import type { Resort } from '../../config/resorts';
 import { Chart, baseOption, tipHeader, tipRow, type EChartsCoreOption } from '../../components/Chart';
-import type { BandForecast } from '../../hooks/data';
+import { NBM } from '../../config/models';
+import type { BandForecast, NbmForecast } from '../../hooks/data';
 import type { DayDist } from '../../lib/ensemble';
 import type { DailyRow, DerivedHourly, Phase } from '../../lib/forecast';
 import { SNOW_CLASSES_CM, alpha, slotColor, snowClass, type ChartPalette } from '../../lib/palette';
 import type { Fmt } from '../../lib/prefs';
-import { dayLabel, shortDate } from '../../lib/time';
+import { dayLabel, runLabel, shortDate } from '../../lib/time';
 
 /** Shared plot margins so every strip lines up with the bars. */
 const GRID_L = 52;
 const GRID_R = 16;
 export const LOW_CENTRES = 3;
 const WIND_HOLD_KMH = 64; // ≈ 40 mph gusts: lift-hold territory
+/** Series name of the NBM benchmark mark (kept out of the per-model tooltip rows). */
+const NBM_SERIES = NBM.label;
 
 export interface DailyContext {
   data: BandForecast;
@@ -31,6 +34,8 @@ export interface DailyContext {
   narrow: boolean;
   rawSnow: boolean;
   today: string;
+  /** NOAA NBM when "Compare with official guidance" is on: its own snowfall as a benchmark mark. */
+  nbm?: NbmForecast | null;
 }
 
 const longDay = (iso: string) => `${dayLabel(iso).split(' ')[0]} ${shortDate(iso)}`;
@@ -40,8 +45,14 @@ function snowText(fmt: Fmt, cm: number | null | undefined, narrow: boolean) {
   return narrow ? fmt.snow(cm).replace(/ (in|cm)$/, '') : fmt.snow(cm);
 }
 
+/** NBM's own snowfall for a day, if it covers the day (the same ≥ 20 h rule as the model marks). */
+export function nbmSnowOn(nbm: NbmForecast | null | undefined, date: string): number | null {
+  const r = nbm?.daily.find((x) => x.date === date);
+  return r && r.hours >= 20 ? r.snowCm : null;
+}
+
 export function DailySnowChart(ctx: DailyContext) {
-  const { data, days, dists, centres, visible, fmt, narrow, rawSnow, today } = ctx;
+  const { data, days, dists, centres, visible, fmt, narrow, rawSnow, today, nbm } = ctx;
   const key = rawSnow ? 'omSnowCm' : 'snowCm';
   const option = useCallback(
     (p: ChartPalette): EChartsCoreOption => {
@@ -92,8 +103,9 @@ export function DailySnowChart(ctx: DailyContext) {
                   tipRow(p.ink3, `of members ≤ ${fmt.snow(2.5)} (typical ${fmt.snow(dist.lowMedian)})`, `${Math.round(dist.pLow * 100)}%`, p) +
                   tipRow(p.ink3, `of members ≥ ${fmt.snow(15)} (typical ${fmt.snow(dist.highMedian)})`, `${Math.round(dist.pHigh * 100)}%`, p)
                 : '',
+              nbm ? tipRow(p.ink1, `${NBM.label} (official guidance, its own snowfall)`, fmt.snow(nbmSnowOn(nbm, d.date)), p, 'tick') : '',
               ...params
-                .filter((x) => x.seriesName !== 'Blend' && num(x) != null)
+                .filter((x) => x.seriesName !== 'Blend' && x.seriesName !== NBM_SERIES && num(x) != null)
                 .sort((a, b) => (num(b) ?? 0) - (num(a) ?? 0))
                 .map((x) => tipRow(x.color, x.seriesName, show(num(x)), p)),
               tipRow(p.rain, 'rain (blend)', fmt.water(d.rainMm), p),
@@ -127,10 +139,16 @@ export function DailySnowChart(ctx: DailyContext) {
             itemStyle: { color: slotColor(p, m.model.slot), borderColor: p.surface, borderWidth: 2 },
             data: days.map((d) => modelVal(m, d.date)),
           })),
+          // Benchmark mark: a short bar in the ink colour (no model slot), outlined so it reads on any snow bar.
+          ...(nbm ? [{
+            type: 'scatter', name: NBM_SERIES, symbol: 'rect', symbolSize: [narrow ? 14 : 24, 4], z: 4,
+            itemStyle: { color: p.ink1, borderColor: p.surface, borderWidth: 1 },
+            data: days.map((d) => fmt.snowVal(nbmSnowOn(nbm, d.date))),
+          }] : []),
         ],
       };
     },
-    [data, days, dists, centres, visible, fmt, narrow, rawSnow, today, key],
+    [data, days, dists, centres, visible, fmt, narrow, rawSnow, today, key, nbm],
   );
   const total = days.reduce((s, d) => s + (d[key] ?? 0), 0);
   const biggest = days.reduce<DailyRow | null>((b, d) => ((d[key] ?? 0) > (b?.[key] ?? 0) ? d : b), null);
@@ -138,7 +156,8 @@ export function DailySnowChart(ctx: DailyContext) {
     <Chart
       option={option}
       height={narrow ? 260 : 300}
-      ariaLabel={`Daily snowfall, next ${days.length} days: blend total ${fmt.snow(total)}${biggest ? `, biggest day ${longDay(biggest.date)} with ${fmt.snow(biggest[key])}` : ''}.`}
+      ariaLabel={`Daily snowfall, next ${days.length} days: blend total ${fmt.snow(total)}${biggest ? `, biggest day ${longDay(biggest.date)} with ${fmt.snow(biggest[key])}` : ''}.` +
+        (nbm ? ` ${NBM.long}, its own snowfall: ${fmt.snow(days.reduce((s, d) => s + (nbmSnowOn(nbm, d.date) ?? 0), 0))} over the days it covers.` : '')}
     />
   );
 }
@@ -244,7 +263,7 @@ export function PhaseGustStrip({ days, phases, resort, fmt, narrow }: Pick<Daily
   return <Chart option={option} height={22 * (bands.length + 1) + 8} ariaLabel="Precipitation type by elevation and peak gust per day" />;
 }
 
-export function DailyLegend({ fmt }: { fmt: Fmt }) {
+export function DailyLegend({ fmt, nbm }: { fmt: Fmt; nbm?: NbmForecast | null }) {
   const bounds = SNOW_CLASSES_CM.map((b) => {
     const v = fmt.snowVal(b)!;
     return fmt.units === 'imperial' ? Math.round(v) : Math.round(v * 10) / 10;
@@ -265,6 +284,12 @@ export function DailyLegend({ fmt }: { fmt: Fmt }) {
         <span className="flex items-center gap-1">{sw('var(--rain)')}R rain</span>
       </span>
       <span>● global model · ◆ high-res model</span>
+      {nbm && (
+        <span className="flex items-center gap-1" title={`${NBM.long}. ${NBM.blurb} Not part of the blend.`}>
+          <span aria-hidden style={{ width: 14, height: 4, background: 'var(--ink-1)', borderRadius: 1, boxShadow: '0 0 0 1px var(--surface-1)', display: 'inline-block' }} />
+          {NBM.label}{nbm.run ? ` ${runLabel(nbm.run.initUnix).split(' ').at(-1)}` : ''}: official guidance, its own snowfall
+        </span>
+      )}
     </div>
   );
 }

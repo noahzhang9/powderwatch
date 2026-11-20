@@ -1,10 +1,10 @@
 import { useCallback, useMemo, useState } from 'react';
-import { MODELS } from '../config/models';
+import { MODELS, NBM } from '../config/models';
 import type { BandKey, Resort } from '../config/resorts';
 import { bandInText } from '../config/resorts';
 import { Chart, baseOption, tipHeader, tipRow, type EChartsCoreOption } from '../components/Chart';
 import { Disclosure, Lazy, Loading, ModelChip, Notice, RequestError, Section, Seg } from '../components/ui';
-import { useBandForecast, useEnsembles, useRunMeta, type BandForecast, type EnsembleSet } from '../hooks/data';
+import { useBandForecast, useEnsembles, useNbm, useRunMeta, type BandForecast, type EnsembleSet, type NbmForecast } from '../hooks/data';
 import { useNarrow } from '../hooks/useNarrow';
 import { useHashParam } from '../hooks/useRoute';
 import { cumulativePlume, dailyDistributions } from '../lib/ensemble';
@@ -14,12 +14,13 @@ import { useFmt, type Fmt } from '../lib/prefs';
 import { isNum } from '../lib/stats';
 import { dayLabel, localDate, localHourLabel, nowUnix, todayIn } from '../lib/time';
 import { RecentSection } from './RecentSection';
-import { DailyLegend, DailySnowChart, PhaseGustStrip, RainStrip } from './storm/Daily';
+import { DailyLegend, DailySnowChart, PhaseGustStrip, RainStrip, nbmSnowOn } from './storm/Daily';
 import { Chances, RunChangeSummary, RunChangeTable, RunsRow, Totals, useRunChange } from './storm/Panels';
 
 const BANDS = ['base', 'mid', 'summit'] as const;
 const VIEWS = ['daily', 'cumulative'] as const;
 const MORE = ['0', '1'] as const;
+const OFFICIAL = ['0', '1'] as const;
 const RUN_TABLE_ID = 'run-change';
 
 export function StormView({ resort }: { resort: Resort }) {
@@ -29,10 +30,15 @@ export function StormView({ resort }: { resort: Resort }) {
   const [mode, setMode] = useHashParam<(typeof VIEWS)[number]>('view', 'daily', VIEWS);
   // "More detail": closed by default, remembered in the URL; its panels mount (and fetch) only when open.
   const [more, setMore] = useHashParam<(typeof MORE)[number]>('more', '0', MORE);
+  // "Compare with official guidance": off by default, remembered in the URL; nothing is requested while off.
+  const [officialParam, setOfficial] = useHashParam<(typeof OFFICIAL)[number]>('official', '0', OFFICIAL);
+  const official = resort.officialGuidance === true && officialParam === '1';
   const band = resort.bands.find((b) => b.key === bandKey)!;
   const fc = useBandForecast(resort, band);
   const ens = useEnsembles({ lat: band.lat, lon: band.lon, elevation: band.elevation }, resort.tz);
   const meta = useRunMeta(resort.models);
+  const nbm = useNbm(resort, band, official);
+  const nbmData = official ? nbm.data ?? null : null;
   const [hidden, setHidden] = useState<Set<string>>(new Set());
   const [rawSnow, setRawSnow] = useState(false);
   const [showTable, setShowTable] = useState(false);
@@ -96,6 +102,15 @@ export function StormView({ resort }: { resort: Resort }) {
           options={resort.bands.map((b) => ({ value: b.key, label: narrow ? b.label : `${b.label} · ${fmt.elev(b.elevation)}` }))}
         />
         <Seg label="Snowfall view" value={mode} onChange={setMode} options={[{ value: 'daily', label: 'Daily' }, { value: 'cumulative', label: 'Cumulative' }]} />
+        {resort.officialGuidance && (
+          <label
+            className="btn"
+            title={`Adds NOAA's own forecasts for comparison: the ${NBM.long}'s snowfall on the daily chart, and the Weather Prediction Center's chances of heavy snow. Neither joins the blend.`}
+          >
+            <input type="checkbox" checked={official} onChange={(e) => setOfficial(e.target.checked ? '1' : '0')} />
+            {narrow ? 'Official guidance' : 'Compare with official guidance'}
+          </label>
+        )}
         <details className="text-xs text-ink-2">
           <summary className="btn">Advanced</summary>
           <label className="flex items-center gap-1.5 mt-2">
@@ -134,15 +149,16 @@ export function StormView({ resort }: { resort: Resort }) {
           >
             {mode === 'daily' ? (
               <>
-                <DailySnowChart data={data} days={days} dists={dists} centres={centres} phases={phases} visible={visible} resort={resort} fmt={fmt} narrow={narrow} rawSnow={rawSnow} today={today} />
+                <DailySnowChart data={data} days={days} dists={dists} centres={centres} phases={phases} visible={visible} resort={resort} fmt={fmt} narrow={narrow} rawSnow={rawSnow} today={today} nbm={nbmData} />
                 <RainStrip days={days} fmt={fmt} />
                 <PhaseGustStrip days={days} phases={phases} resort={resort} fmt={fmt} narrow={narrow} />
-                <DailyLegend fmt={fmt} />
+                <DailyLegend fmt={fmt} nbm={nbmData} />
+                {official && nbm.error && <RequestError what={NBM.label} error={nbm.error} retry={nbm.retry} />}
               </>
             ) : (
               <CumulativeChart data={data} visible={visible} now={now} tz={resort.tz} fmt={fmt} rawSnow={rawSnow} />
             )}
-            {showTable && <DailyTable data={data} tz={resort.tz} fmt={fmt} />}
+            {showTable && <DailyTable data={data} tz={resort.tz} fmt={fmt} nbm={nbmData} />}
           </Section>
           {ens.error && <RequestError what="Ensemble" error={ens.error} retry={ens.retry} />}
           <Chances ens={ens.data} now={now} resort={resort} fmt={fmt} />
@@ -308,7 +324,7 @@ function TempChart({ data, visible, tz, fmt }: { data: BandForecast; visible: De
   return <Chart option={option} height={240} ariaLabel="Temperature by model" />;
 }
 
-function DailyTable({ data, tz, fmt }: { data: BandForecast; tz: string; fmt: Fmt }) {
+function DailyTable({ data, tz, fmt, nbm }: { data: BandForecast; tz: string; fmt: Fmt; nbm: NbmForecast | null }) {
   const today = todayIn(tz);
   const days = data.blendDaily.filter((d) => d.date >= today).slice(0, 16);
   return (
@@ -321,6 +337,7 @@ function DailyTable({ data, tz, fmt }: { data: BandForecast; tz: string; fmt: Fm
             <th>Rain</th>
             <th>Snow level</th>
             {data.models.map((m) => <th key={m.model.id}>{m.model.label}</th>)}
+            {nbm && <th title={`${NBM.long}: official guidance, its own snowfall, not in the blend`}>{NBM.label}</th>}
           </tr>
         </thead>
         <tbody>
@@ -334,6 +351,7 @@ function DailyTable({ data, tz, fmt }: { data: BandForecast; tz: string; fmt: Fm
                 const r = data.daily[m.model.id]?.find((x) => x.date === d.date);
                 return <td key={m.model.id}>{r && r.hours >= 20 ? fmt.snow(r.snowCm) : '—'}</td>;
               })}
+              {nbm && <td>{fmt.snow(nbmSnowOn(nbm, d.date))}</td>}
             </tr>
           ))}
         </tbody>

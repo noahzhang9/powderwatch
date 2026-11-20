@@ -5,6 +5,8 @@ Whistler Blackcomb and Verbier.
 It compares deterministic models, regional high-res models and ensembles from
 [Open-Meteo](https://open-meteo.com/), runs them all through one set of snow physics, and tracks
 station snow depth against each station's own history, with an ensemble-driven snowpack projection.
+At the US resorts, "Compare with official guidance" adds NOAA's own products as opt-in benchmarks:
+the National Blend of Models' snowfall on the Storm tracker's daily chart.
 
 Design, data sources, methods and roadmap: [docs/proposal.md](docs/proposal.md). Conventions and invariants for contributors and coding agents: [AGENTS.md](AGENTS.md).
 
@@ -54,9 +56,11 @@ permissions it needs.
   fetch time. The snapshot ships only with the Pages deploy; it is not committed.
   - Covered: per resort, the deterministic forecast for all three bands, the pressure profile and
     all six ensembles at mid-mountain, run timing for every model, the previous run of each global
-    model for the run-change panel, the last-7-days requests, and the snowpack-projection inputs
+    model for the run-change panel, NOAA NBM at mid for the US resorts (1 weighted call each), the
+    last-7-days requests, and the snowpack-projection inputs
     at the station each Snowpack tab opens by default, then at the other stations while the budget
-    allows. Run-history past runs and base/summit ensembles are always fetched live.
+    allows. Run-history past runs, base/summit ensembles and NBM at base/summit are always
+    fetched live.
   - The browser builds every request URL with the same functions as the script
     (`src/lib/openmeteo.ts`, `src/lib/requests.ts`). `cachedJson` (`src/lib/cache.ts`) reads the
     manifest once per page and uses a snapshot copy younger than 4.5 hours instead of calling

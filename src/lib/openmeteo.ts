@@ -7,6 +7,7 @@
  * build it the same way. `cachedJson` serves a URL from the snapshot when it is
  * fresh and calls Open-Meteo directly otherwise.
  */
+import { NBM } from '../config/models';
 import { cachedJson, type Priority } from './cache';
 import type { ProfileLevel } from './physics';
 import type { Series } from './stats';
@@ -155,6 +156,39 @@ export function ensembleUrl(pt: Point, modelId: string, tz: string, opts: { past
     hourly: vars.join(','),
     models: modelId, forecast_days: 16, past_days: opts.pastDays, timezone: tz, timeformat: 'unixtime',
   })}`;
+}
+
+/**
+ * NOAA NBM, a benchmark: its own snowfall (NBM's ASNOW), precipitation, temperature and snow level
+ * (SNOWLVL). Never derived through the physics, never blended.
+ */
+const NBM_VARS = ['precipitation', 'snowfall', 'temperature_2m', 'snowfall_height'];
+
+export function nbmUrl(pt: Point, tz: string): string {
+  return `${FORECAST}?${qs({
+    latitude: pt.lat, longitude: pt.lon, elevation: pt.elevation,
+    hourly: NBM_VARS.join(','), models: NBM.id, forecast_days: NBM.forecastDays, timezone: tz, timeformat: 'unixtime',
+  })}`;
+}
+
+export interface NbmHourly {
+  time: number[];
+  precip: Series;
+  /** NBM's own snowfall, cm. */
+  snowCm: Series;
+  tC: Series;
+  /** NBM's own snow level, m. */
+  snowLevel: Series;
+}
+
+export function parseNbm(d: OmResponse): NbmHourly {
+  const h = d.hourly;
+  const get = (v: string) => (h[v] ?? h[`${v}_${NBM.id}`] ?? []) as Series;
+  return { time: h.time as number[], precip: get('precipitation'), snowCm: get('snowfall'), tC: get('temperature_2m'), snowLevel: get('snowfall_height') };
+}
+
+export async function fetchNbm(pt: Point, tz: string): Promise<NbmHourly> {
+  return parseNbm(await cachedJson<OmResponse>(nbmUrl(pt, tz), FORECAST_TTL, 'low'));
 }
 
 /** Run timing for one model (`metaId` from the model catalogue). */

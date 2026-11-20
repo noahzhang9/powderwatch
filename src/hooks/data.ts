@@ -3,13 +3,14 @@
  * The `load*` functions are the views' exact requests, kept outside React so
  * the snapshot tests can replay them.
  */
-import { ENSEMBLES } from '../config/models';
+import { ENSEMBLES, NBM } from '../config/models';
 import type { Band, Resort } from '../config/resorts';
 import { NotInSnapshotError, isNotInSnapshot } from '../lib/cache';
+import { nbmDaily } from '../lib/benchmarks';
 import { alignMembers, deriveMembers, type MemberSeries } from '../lib/ensemble';
 import { blend, deriveModel, toDaily, type BlendHourly, type DailyRow, type DerivedHourly } from '../lib/forecast';
 import {
-  fetchEnsemble, fetchProfiles, fetchRunMeta, fetchSingleRun, fetchSurface, type Point, type RunMeta, type SurfaceHourly,
+  fetchEnsemble, fetchNbm, fetchProfiles, fetchRunMeta, fetchSingleRun, fetchSurface, type Point, type RunMeta, type SurfaceHourly,
 } from '../lib/openmeteo';
 import type { ProfileLevel } from '../lib/physics';
 import { RECENT_SURFACE, SCENARIO_MODELS, hasData, metaIdOf, midBand, pointOf, previousRun, scenarioSurface } from '../lib/requests';
@@ -143,3 +144,20 @@ export async function loadRecentModels(pt: Point, resort: Resort): Promise<Recen
 /** Single-model snowpack scenarios at a station's point. */
 export const loadScenarios = (pt: Point, tz: string, pastDays: number) =>
   fetchSurface(pt, SCENARIO_MODELS, tz, { ...scenarioSurface(pastDays), priority: 'low' });
+
+export interface NbmForecast {
+  daily: DailyRow[];
+  /** NBM's run (null: run metadata unavailable). */
+  run: RunMeta | null;
+}
+
+/** NOAA NBM at a band, with its run time: the "Compare with official guidance" benchmark. */
+export async function loadNbm(resort: Resort, band: Band): Promise<NbmForecast> {
+  const [n, run] = await Promise.all([fetchNbm(pointOf(band), resort.tz), fetchRunMeta(NBM.metaId)]);
+  return { daily: nbmDaily(n, resort.tz), run };
+}
+
+/** Requests nothing unless `enabled` (the toggle is on and the resort is covered). */
+export function useNbm(resort: Resort, band: Band, enabled: boolean) {
+  return useAsync(() => loadNbm(resort, band), [resort.id, band.key], enabled);
+}

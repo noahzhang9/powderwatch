@@ -101,3 +101,28 @@ export const ENSEMBLES: EnsembleDef[] = [
 
 /** Models offered in run-history comparisons (all global; regional runs are too short). */
 export const HISTORY_MODELS = ['ecmwf_ifs025', 'gfs_global', 'gem_global', 'icon_global', 'ecmwf_aifs025_single'];
+
+/**
+ * Benchmarks: an official provider's own finished product, shown only for comparison behind the Storm
+ * tracker's "Compare with official guidance" toggle. Never in MODELS, never in the blend, and (the one
+ * exception to "one physics for all models") its own snowfall field is what's shown. See AGENTS.md.
+ */
+export interface BenchmarkDef {
+  id: string;
+  label: string;
+  long: string;
+  metaId: string;
+  /** Days requested (its range). */
+  forecastDays: number;
+  resolutionKm: number;
+  blurb: string;
+}
+
+/** NOAA's National Blend of Models (CONUS), via Open-Meteo: its own calibrated snowfall (ASNOW). */
+export const NBM: BenchmarkDef = {
+  id: 'ncep_nbm_conus', label: 'NOAA NBM', long: 'NOAA National Blend of Models', metaId: 'ncep_nbm_conus',
+  // NBM runs 264 h (11 days). 12 days from local midnight still cover a 12Z cycle's day 10 (its day 1 is
+  // tomorrow) for the verification archive, at the same weighted cost (1).
+  forecastDays: 12, resolutionKm: 2.5,
+  blurb: "NOAA's calibrated blend of many models, updated hourly. Shown with its own snowfall on its 2.5 km grid, not adjusted to the band's elevation.",
+};

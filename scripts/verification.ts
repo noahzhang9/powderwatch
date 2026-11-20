@@ -8,26 +8,28 @@
  * `archive` job keeps only the first one it sees for each cycle (it never overwrites a file). So the
  * archived record comes from the first snapshot run that carried the cycle.
  *
- * Contents, per resort: the mid band (blend, each model, ensembles) and each station's own point (each
- * scenario model, ensembles) where the snapshot holds the Snowpack tab's station-point requests. Snow, rain
+ * Contents, per resort: the mid band (blend, each model, ensembles, and NOAA NBM's own product at US
+ * resorts) and each station's own point (each scenario model, ensembles) where the snapshot holds the
+ * Snowpack tab's station-point requests. Snow, rain
  * and snow level go through the same physics as the site (`deriveModel`, `deriveMembers`), and days use
  * `forecast.toDaily`'s convention. Stored metric: cm, mm, °C, m; chances 0–1.
  *
  * scripts/validate_verification.py validates and re-serialises these files before they are committed to the
  * `data/verification` branch; keep the two in step (scripts/verification.test.ts runs the validator on a record).
  */
-import { ENSEMBLES, MODELS } from '../src/config/models';
+import { ENSEMBLES, MODELS, NBM } from '../src/config/models';
 import { RESORTS, type Resort } from '../src/config/resorts';
 import { stationsFor, type StationDef } from '../src/config/stations';
 import {
   CHANCE_HORIZONS_H, CHANCE_THRESHOLDS_CM, alignMembers, deriveMembers, probabilityAtLeast, windowQuantiles, windowTotals,
   type MemberSeries,
 } from '../src/lib/ensemble';
+import { nbmDaily } from '../src/lib/benchmarks';
 import { blend, dailyCentres, deriveModel, toDaily, type DailyRow, type DerivedHourly } from '../src/lib/forecast';
 import type { StationFile } from '../src/lib/obs';
 import {
-  PREVIOUS_RUN_LEADS, ensembleUrl, parseEnsemble, parsePreviousRuns, parseProfiles, parseSurface, profileUrl, type OmResponse, type Point,
-  type Profiles, type RunMeta,
+  PREVIOUS_RUN_LEADS, ensembleUrl, nbmUrl, parseEnsemble, parseNbm, parsePreviousRuns, parseProfiles, parseSurface, profileUrl, type OmResponse,
+  type Point, type Profiles, type RunMeta,
 } from '../src/lib/openmeteo';
 import { SCENARIO_MODELS, hasData, metaIdOf, midBand, pointOf } from '../src/lib/requests';
 import { round, type Series } from '../src/lib/stats';
@@ -139,6 +141,8 @@ export interface PointRecord {
   blend?: Fields;
   models: Record<string, Fields>;
   ens: EnsembleFields | null;
+  /** Mid band of US resorts: NOAA NBM's own snowfall, precipitation, temperatures and snow level (no rain field). */
+  nbm?: Fields;
 }
 
 export type SkipReason = 'no-projection' | 'not-in-snapshot';
@@ -150,7 +154,7 @@ export interface VerificationRecord {
   /** When the snapshot run started. */
   generatedAt: string;
   thresholdsCm: number[];
-  /** Latest run of every deterministic model at snapshot time (null: no run metadata). */
+  /** Latest run of every deterministic model, and of NOAA NBM, at snapshot time (null: no run metadata). */
   runs: Record<string, string | null>;
   /** Global models that didn't hold the cycle back (see chooseCycle). */
   lagging: string[];
@@ -262,6 +266,7 @@ export function buildVerificationRecord(input: RecordInput): VerificationRecord 
   const points: PointRecord[] = [];
   const skipped: VerificationRecord['skipped'] = [];
   const allModels = [...new Set(resorts.flatMap((r) => r.models))];
+  const runIds = [...allModels.map((id) => [id, metaIdOf(id)]), ...(resorts.some((r) => r.officialGuidance) ? [[NBM.id, NBM.metaId]] : [])];
 
   for (const r of resorts) {
     const day1 = firstDay(cycle.cycleS, r.tz);
@@ -279,11 +284,14 @@ export function buildVerificationRecord(input: RecordInput): VerificationRecord 
       const b = blend(models);
       const ens = loadMembers(input.json, ENSEMBLES.map((e) => ensembleUrl(midPt, e.id, r.tz)), midPt);
       const centres = dailyCentres(models, r.tz);
+      const nbm = r.officialGuidance ? input.json(nbmUrl(midPt, r.tz)) : undefined;
+      const nbmHourly = nbm ? parseNbm(nbm) : undefined;
       points.push({
         ...base, kind: 'mid', id: 'mid', lat: mid.lat, lon: mid.lon, elev: mid.elevation,
         blend: b ? { ...dailyFields(daily(b, r.tz), days, r.tz), centres: days.map((d) => centres.get(d) ?? 0) } : undefined,
         models: modelFields(models, days, r.tz),
         ens: ensembleFields(ens.time, ens.members, ens.ids, days, r.tz),
+        ...(nbmHourly ? { nbm: dailyFields(nbmDaily({ ...nbmHourly, precip: nonNegative(nbmHourly.precip) }, r.tz), days, r.tz, { rain: false }) } : {}),
       });
     }
 
@@ -313,8 +321,8 @@ export function buildVerificationRecord(input: RecordInput): VerificationRecord 
     cycle: cycleName(cycle.cycleS),
     generatedAt: new Date(input.nowS * 1000).toISOString().replace(/\.\d+Z$/, 'Z'),
     thresholdsCm: RECORD_THRESHOLDS_CM.map((t) => round(t, 2)!),
-    runs: Object.fromEntries(allModels.map((id) => {
-      const init = input.meta[metaIdOf(id)]?.initUnix;
+    runs: Object.fromEntries(runIds.map(([id, metaId]) => {
+      const init = input.meta[metaId]?.initUnix;
       return [id, init ? runName(init) : null];
     })),
     lagging: cycle.lagging,

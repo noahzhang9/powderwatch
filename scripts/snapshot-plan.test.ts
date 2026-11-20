@@ -6,7 +6,7 @@ import { HISTORY_MODELS } from '../src/config/models';
 import { RESORTS } from '../src/config/resorts';
 import { STATIONS, stationsFor } from '../src/config/stations';
 import {
-  loadBandSurface, loadEnsembles, loadProfiles, loadRecentModels, loadRunChange, loadRunMeta, loadScenarios,
+  loadBandSurface, loadEnsembles, loadNbm, loadProfiles, loadRecentModels, loadRunChange, loadRunMeta, loadScenarios,
 } from '../src/hooks/data';
 import { SNAPSHOT_MAX_AGE_S, clearCache } from '../src/lib/cache';
 import { loadStation, type StationFile } from '../src/lib/obs';
@@ -14,7 +14,8 @@ import { parseRunMeta, type RunMeta, type SurfaceHourly } from '../src/lib/openm
 import { hasData, midBand, pointOf, projectionStart, runChangeModels, SNOWPACK_WITH_FREEZING_LEVEL } from '../src/lib/requests';
 import { todayIn } from '../src/lib/time';
 import {
-  HARD_MAX_COST, PRIORITY, estimateCost, metaIdsFor, planSnapshot, runBudget, selectWithinBudget, type PlanGroup,
+  FIRST_SCREENS, HARD_MAX_COST, PRIORITY, estimateCost, firstScreenCost, groupCost, metaIdsFor, planSnapshot, runBudget, selectWithinBudget,
+  type PlanGroup,
 } from './snapshot-plan';
 
 // 23:30 in Verbier: its local date changes while this snapshot is served; the Pacific resorts' doesn't.
@@ -54,8 +55,9 @@ function stubNetwork() {
 }
 
 /**
- * Replays the views' requests: dashboard, storm tracker (mid band with "More detail" open, plus the
- * deterministic forecast after switching band), run history's run timing, snowpack at every station.
+ * Replays the views' requests: dashboard, storm tracker (mid band with "More detail" open and, where
+ * offered, "Compare with official guidance" on, plus the deterministic forecast after switching band),
+ * run history's run timing, snowpack at every station.
  */
 async function browserRequests(atS: number) {
   vi.setSystemTime(atS * 1000);
@@ -71,6 +73,7 @@ async function browserRequests(atS: number) {
     await loadEnsembles(pointOf(mid), r.tz);
     await loadRunChange(r, mid, runChangeModels(surface.filter(hasData).map((s) => s.modelId)), meta);
     for (const p of [...stationsFor(r.id), mid]) await loadRecentModels(pointOf(p), r);
+    if (r.officialGuidance) await loadNbm(r, mid);
     for (const b of r.bands) await loadBandSurface(r, b);
     await loadRunMeta(HISTORY_MODELS.filter((m) => r.models.includes(m)));
     for (const st of stationsFor(r.id)) {
@@ -173,13 +176,39 @@ describe('runBudget', () => {
   });
 });
 
+describe('daily budget', () => {
+  /** The six scheduled runs of one day (the workflow's cron), each with its own plan and budget. */
+  const simulateDay = (drop?: (g: PlanGroup) => boolean) => {
+    const meta = Object.fromEntries(metaIdsFor().map((id) => [id, parseRunMeta(fakeMeta())]));
+    const midSurface = Object.fromEntries(RESORTS.map((r) => [r.id, r.models.map((m) => ({ modelId: m, precip: [1] }) as SurfaceHourly)]));
+    return [0, 4, 8, 12, 16, 20].map((h) => {
+      const nowS = Date.parse(`2026-11-20T${String(h).padStart(2, '0')}:20:00Z`) / 1000;
+      const plan = planSnapshot({ nowS, obs: obsFiles(), meta, midSurface }).filter((g) => !drop?.(g));
+      return { firstScreens: firstScreenCost(plan), ...selectWithinBudget(plan, runBudget(plan)) };
+    });
+  };
+
+  it('keeps the six scheduled runs under 9,000 weighted calls a day, first screens in every run', () => {
+    const runs = simulateDay();
+    for (const r of runs) expect(r.skipped.filter((g) => g.priority <= FIRST_SCREENS)).toEqual([]);
+    const total = runs.reduce((s, r) => s + r.cost, 0);
+    expect(total).toBeLessThan(9000);
+  });
+
+  it('spends 1 weighted call per US resort and run on NOAA NBM', () => {
+    const nbm = planSnapshot({ nowS: NOW_S, obs: obsFiles() }).filter((g) => g.priority === PRIORITY.benchmarks);
+    expect(nbm.map((g) => g.label)).toEqual(RESORTS.filter((r) => r.officialGuidance).map((r) => `${r.id}: NOAA NBM at mid`));
+    for (const g of nbm) expect(groupCost(g)).toBe(1);
+  });
+});
+
 describe('selectWithinBudget', () => {
   it('keeps whole groups in priority order and skips what does not fit', () => {
     const F = 'https://api.open-meteo.com/v1/forecast?hourly=a&models=x&forecast_days=1';
     const g = (priority: number, n: number): PlanGroup => ({ priority, label: `p${priority}`, urls: Array.from({ length: n }, (_, i) => `${F}&i=${priority}-${i}`) });
     const { included, skipped, cost } = selectWithinBudget([g(PRIORITY.meta, 2), g(PRIORITY.midEnsembles, 5), g(PRIORITY.snowpackOther, 2)], 5);
-    expect(included.map((x) => x.label)).toEqual(['p0', 'p8']);
-    expect(skipped.map((x) => x.label)).toEqual(['p3']);
+    expect(included.map((x) => x.label)).toEqual([`p${PRIORITY.meta}`, `p${PRIORITY.snowpackOther}`]);
+    expect(skipped.map((x) => x.label)).toEqual([`p${PRIORITY.midEnsembles}`]);
     expect(cost).toBe(4);
   });
 });

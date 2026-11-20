@@ -6,12 +6,12 @@
  * Not included, by design: Run-history past runs, and ensembles at base or
  * summit. Those are fetched live when a visitor opens them.
  */
-import { ENSEMBLES } from '../src/config/models';
+import { ENSEMBLES, NBM } from '../src/config/models';
 import { RESORTS, type Resort } from '../src/config/resorts';
 import { stationsFor, type StationDef } from '../src/config/stations';
 import { SNAPSHOT_INTERVAL_H, SNAPSHOT_MAX_AGE_S } from '../src/lib/cache';
 import type { StationFile } from '../src/lib/obs';
-import { ENSEMBLE, ensembleUrl, profileUrl, runMetaUrl, singleRunUrl, surfaceUrl, type RunMeta, type SurfaceHourly } from '../src/lib/openmeteo';
+import { ENSEMBLE, ensembleUrl, nbmUrl, profileUrl, runMetaUrl, singleRunUrl, surfaceUrl, type RunMeta, type SurfaceHourly } from '../src/lib/openmeteo';
 import {
   RECENT_DAYS, RECENT_SURFACE, SCENARIO_MODELS, defaultStationIndex, hasData, metaIdOf, midBand, pointOf, previousRun,
   projectionStart, runChangeModels, scenarioSurface, SNOWPACK_WITH_FREEZING_LEVEL,
@@ -26,18 +26,21 @@ export const PRIORITY = {
   otherBands: 2,
   midEnsembles: 3,
   runChange: 4,
-  recent: 5,
+  /** NOAA NBM at mid ("Compare with official guidance"): one click away, 1 weighted call each, and archived. */
+  benchmarks: 5,
+  recent: 6,
   /** Snowpack inputs at the station each resort's Snowpack tab opens by default. */
-  snowpackDefault: 6,
+  snowpackDefault: 7,
   /** The same after local midnight, when the projection asks for one more past day. */
-  snowpackDefaultNextDay: 7,
-  snowpackOther: 8,
-  snowpackOtherNextDay: 9,
+  snowpackDefaultNextDay: 8,
+  snowpackOther: 9,
+  snowpackOtherNextDay: 10,
 } as const;
 
 /**
  * Groups up to this priority are what a visit sees first (every band's forecast, mid ensembles, run change,
- * the default Snowpack station) or one click away (last 7 days, under the Storm tracker's "More detail").
+ * the default Snowpack station) or one click away (NBM behind "Compare with official guidance", last 7 days
+ * under the Storm tracker's "More detail").
  * A run's budget grows to fit them (see runBudget).
  */
 export const FIRST_SCREENS = PRIORITY.snowpackDefaultNextDay;
@@ -72,8 +75,9 @@ export interface PlanInput {
   resorts?: Resort[];
 }
 
-/** Every run-metadata id a view requests (storm tracker: all models; run history: a subset). */
-export const metaIdsFor = (resorts: Resort[] = RESORTS) => [...new Set(resorts.flatMap((r) => r.models.map(metaIdOf)))];
+/** Every run-metadata id a view requests (storm tracker: all models, and NBM's with official guidance on; run history: a subset). */
+export const metaIdsFor = (resorts: Resort[] = RESORTS) =>
+  [...new Set([...resorts.flatMap((r) => r.models.map(metaIdOf)), ...(resorts.some((r) => r.officialGuidance) ? [NBM.metaId] : [])])];
 
 /** The storm tracker's surface request at mid-mountain (its default band). */
 export const midSurfaceUrl = (r: Resort) => surfaceUrl(pointOf(midBand(r)), r.models, r.tz);
@@ -119,6 +123,8 @@ export function planSnapshot(input: PlanInput): PlanGroup[] {
         return init ? [singleRunUrl(midPt, id, previousRun(init), r.tz)] : [];
       }));
     }
+
+    if (r.officialGuidance) add(PRIORITY.benchmarks, `${r.id}: NOAA NBM at mid`, [nbmUrl(midPt, r.tz)]);
 
     const stations = stationsFor(r.id);
     add(PRIORITY.recent, `${r.id}: last ${RECENT_DAYS} days`, [...stations, mid].map((p) => surfaceUrl(pointOf(p), r.models, r.tz, RECENT_SURFACE)));
