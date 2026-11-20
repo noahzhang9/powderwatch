@@ -193,6 +193,7 @@ Climatology rules:
   - Test set: 1,355 ten-day cases from three Cascade SNOTEL stations, 2015–2026.
   - Forcing: observed SWE change plus ERA5 temperature, so only the depth physics is tested.
   - Fit on even-numbered seasons, scored on odd-numbered seasons.
+  - The fit and the scores below used station files in AWDB's default dating, which put each SNOTEL reading a day early (§5), so the observed water input and depths sat a day off the ERA5 temperatures. `DEFAULT_PARAMS` have not been refitted on the corrected dating.
 
   | Method (10-day depth change) | RMSE |
   |---|---:|
@@ -346,7 +347,7 @@ These remain links.
   - SNODAS: US government data distributed by NSIDC, which requires its citation as a condition of use (in `public/data/NOTICE.md`, the footer and the Methods page): National Operational Hydrologic Remote Sensing Center. (2004). Snow Data Assimilation System (SNODAS) Data Products at NSIDC. (G02158, Version 1). [Data Set]. Boulder, Colorado USA. National Snow and Ice Data Center. https://doi.org/10.7265/N5TB14TC.
 - **What counts as "daily"** differs by source, and each station records its own:
   - SNODAS: the model state at 06:00 UTC (10 pm PST the evening before).
-  - SNOTEL: midnight PST.
+  - SNOTEL: the midnight (PST) reading that opens the date. `scripts/fetch-obs.ts` asks AWDB for `periodRef=START`; AWDB's default dates the same reading by the day it closes, one day earlier, and station files fetched before `periodRef=START` was added used that default. An incremental refresh that finds a file in the old dating replaces it with the full history rather than merging into it.
   - ECCC: the morning observation.
   - BC: median of the hourly readings for each PST day.
   - SLF: daily value.
@@ -376,6 +377,8 @@ NOAA NOHRSC's Snow Data Assimilation System runs a physically based snowpack mod
 | 2017-02-15 | +30 cm / −10 mm | +53 cm / −96 mm | +16 cm / +5 mm |
 | 2025-02-15 | −44 cm / −39 mm | 0 cm / −19 mm | −13 cm / −21 mm |
 | 2026-11-15 to 18 | −7 to −18 cm / −64 to −67 mm | 0 to −5 cm / −3 to +1 mm | 0 to +0.2 cm / 0 mm |
+
+These differences come from station files in AWDB's default dating, so each compares SNODAS with the station reading 26 hours later rather than 2 hours later; they have not been recomputed.
 
 In mid-winter SWE agrees within 0–10% at all three stations, and depth less closely (−44 to +53 cm). In the season's first weeks SNODAS holds far less water than Morse Lake reports (5–10 mm against 71–76 mm). On 2004-02-29, before routine assimilation, it differs by −30 to +24 cm and −57 to +79 mm, and it gives 489 cm at Crystal's mid band, against 221 cm at the base and 274 cm at the summit.
 

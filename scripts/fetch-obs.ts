@@ -8,7 +8,8 @@
  *
  * Incremental by default: when a station file already exists, only the last
  * ~6 weeks are fetched and merged in. FULL_REFRESH=1 re-downloads complete
- * histories (the scheduled workflow does this weekly).
+ * histories (the scheduled workflow does this weekly). A SNOTEL file still in
+ * AWDB's default dating (see snotel below) gets its full history instead.
  *
  * Also updates the modelled SNODAS points (SNODAS_POINTS): one NSIDC file per day serves all of
  * them, and only days missing from the last SNODAS_LOOKBACK_DAYS are fetched, so a run downloads
@@ -36,7 +37,7 @@ import { SNAPSHOT_INTERVAL_H } from '../src/lib/cache';
 import type { StationFile } from '../src/lib/obs';
 import { addDays, todayIn } from '../src/lib/time';
 import { jmaDailyUrl, jmaPlan, mergeJmaMonths, parseJmaDaily, parseJmaSourceId, type JmaPage } from './jma';
-import { fromFile, sameData, setVal, toFile, type Daily } from './obs-file';
+import { datedADayEarly, fromFile, sameData, setVal, toFile, type Daily } from './obs-file';
 import { fetchSnodasDay } from './snodas';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -93,11 +94,15 @@ const median = (xs: number[]) => {
 const cleanDepth = (cm: number) => (cm < 0 ? (cm > -5 ? 0 : NaN) : cm > 1500 ? NaN : cm);
 
 // ---------------------------------------------------------------- SNOTEL
+/**
+ * `periodRef=START` dates each midnight (PST) reading by the day it opens, the convention the site reads
+ * (src/lib/recent.ts). AWDB's default (END) dates it by the day it closes, one day earlier.
+ */
 async function snotel(st: StationDef, since: string | null): Promise<Daily> {
   const today = new Date().toISOString().slice(0, 10);
   const url =
     'https://wcc.sc.egov.usda.gov/awdbRestApi/services/v1/data?' +
-    `stationTriplets=${st.sourceId}&elements=SNWD,WTEQ&duration=DAILY&beginDate=${since ?? '1978-10-01'}&endDate=${today}`;
+    `stationTriplets=${st.sourceId}&elements=SNWD,WTEQ&duration=DAILY&periodRef=START&beginDate=${since ?? '1978-10-01'}&endDate=${today}`;
   const json = JSON.parse(await fetchText(url, { retries: 10 })) as {
     data: { stationElement: { elementCode: string; storedUnitCode: string }; values: { date: string; value: number }[] }[];
   }[];
@@ -387,10 +392,16 @@ async function main() {
     try {
       const path = join(OUT, `${st.id}.json`);
       const previous = await readPrevious(st.id);
-      const since = FULL || !previous ? null : new Date(Date.now() - RECENT_DAYS * 86_400_000).toISOString().slice(0, 10);
+      let since = FULL || !previous ? null : new Date(Date.now() - RECENT_DAYS * 86_400_000).toISOString().slice(0, 10);
       const fetcher = FETCHERS[st.source];
       if (!fetcher) throw new Error(`no fetcher for ${st.source}`);
-      const fetched = await fetcher(st, since);
+      let fetched = await fetcher(st, since);
+      // A SNOTEL file from before periodRef=START holds every reading a day early: replace it whole, never merge into it.
+      if (since && previous && st.source === 'SNOTEL' && datedADayEarly(fromFile(previous), fetched)) {
+        console.log(`· ${st.id}: file dates readings a day early (before periodRef=START); fetching the full history`);
+        since = null;
+        fetched = await fetcher(st, since);
+      }
       if (!fetched.size && !previous) throw new Error('no data returned');
       // Incremental: overlay the recent window onto the existing record.
       const daily = since && previous ? fromFile(previous) : new Map() as Daily;

@@ -4,6 +4,7 @@
  */
 import type { StationDef } from '../src/config/stations';
 import type { StationFile } from '../src/lib/obs';
+import { addDays } from '../src/lib/time';
 
 export type Daily = Map<string, { depth?: number; swe?: number; newSnow?: number }>;
 
@@ -60,3 +61,25 @@ export function toFile(st: Pick<StationDef, 'id'>, d: Daily): StationFile {
 
 /** Same readings, ignoring the fetch time (a write that would change only `updated` is skipped). */
 export const sameData = (a: StationFile | null, b: StationFile) => a != null && JSON.stringify({ ...a, updated: '' }) === JSON.stringify({ ...b, updated: '' });
+
+/**
+ * Does `previous` hold `fetched`'s readings one day early? That is how SNOTEL files were dated before
+ * scripts/fetch-obs.ts asked AWDB for periodRef=START. Counts, over both depth and SWE, the fetched readings that
+ * `previous` has on the same date and those it has on the day before. Only days when a reading changed tell the
+ * two apart, so a window without one (snow-free all along) is never judged early.
+ */
+export function datedADayEarly(previous: Daily, fetched: Daily): boolean {
+  const near = (a: number | undefined, b: number) => a != null && Math.abs(a - b) < 0.05; // files keep 0.1 cm / 0.1 mm
+  let same = 0;
+  let early = 0;
+  for (const [date, v] of fetched) {
+    for (const key of ['depth', 'swe'] as const) {
+      const x = v[key];
+      if (x == null) continue;
+      const r = Math.round(x * 10) / 10;
+      if (near(previous.get(date)?.[key], r)) same++;
+      if (near(previous.get(addDays(date, -1))?.[key], r)) early++;
+    }
+  }
+  return early > same;
+}

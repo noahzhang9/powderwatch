@@ -7,9 +7,11 @@
  *  - MeteoSwiss hns000d0 on date D → 06 UTC D → 06 UTC D+1, so it reports on D+1
  *  - ECCC TOTAL_SNOW on date D     → snowfall during climatological day D, reports on D+1
  *  - JMA 降雪 on date D             → snowfall during JST day D (00–24), reports on D+1
- *  - Depth/SWE changes             → reading(D) − reading(D−1); SNOTEL reads at midnight,
- *    ECCC in the morning, SLF/MeteoSwiss at 00/06 UTC, BC uses the day's median
- *    (about half a day later than the others), JMA the day's maximum (JST).
+ *  - Depth/SWE changes             → reading(D) − reading(D−1). SNOTEL's value on D is the midnight (PST)
+ *    reading that opens D (scripts/fetch-obs.ts asks AWDB for periodRef=START; AWDB's default dates
+ *    it D−1), so its change is the 24 h ending at the start of D. ECCC reads in the morning,
+ *    SLF/MeteoSwiss at 00/06 UTC, BC uses the day's median (about half a day later than the others),
+ *    JMA the day's maximum (JST).
  */
 import type { StationDef, StationSource } from '../config/stations';
 import { valueOn, type StationFile } from './obs';

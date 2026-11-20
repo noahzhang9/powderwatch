@@ -23,6 +23,12 @@ describe('recentReports', () => {
     const r = recentReports({ ...base, source: 'JMA' } as StationDef, file({}), '2026-11-14', 3);
     expect(r.map((d) => d.newSnowCm)).toEqual([0, 20, 0]);
   });
+  it("diffs SNOTEL's start-of-day readings onto the report date", () => {
+    // Stevens Pass, periodRef=START: 9 in at the midnight opening Dec 4, 12 in at the one opening Dec 5.
+    const f = file({ start: '2025-12-03', depthCm: [22.9, 22.9, 30.5], sweMm: [38.1, 38.1, 48.3], newSnowCm: null });
+    const r = recentReports({ ...base, source: 'SNOTEL', swe: true } as StationDef, f, '2025-12-05', 2);
+    expect(r.map((d) => [d.date, d.depthChangeCm, d.sweChangeMm])).toEqual([['2025-12-04', 0, 0], ['2025-12-05', expect.closeTo(7.6, 6), expect.closeTo(10.2, 6)]]);
+  });
   it('has no new-snow value for depth-only sources', () => {
     const r = recentReports({ ...base, source: 'SNOTEL' } as StationDef, file({ newSnowCm: null }), '2026-11-14', 2);
     expect(r.every((d) => d.newSnowCm == null)).toBe(true);
