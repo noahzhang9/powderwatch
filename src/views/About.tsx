@@ -4,7 +4,7 @@ import { STATIONS } from '../config/stations';
 import { SNAPSHOT_INTERVAL_H, SNAPSHOT_MAX_AGE_S } from '../lib/cache';
 import { PHASE_TW_HALF_WIDTH, PHASE_TW_MID, SNOW_LEVEL_OFFSET_M, snowToLiquidRatio } from '../lib/physics';
 import { DEFAULT_PARAMS } from '../lib/snowpack';
-import { SPLIT_HIGH_CM, SPLIT_LOW_CM, SPLIT_MIN_SHARE } from '../lib/ensemble';
+import { CHANCE_THRESHOLDS_CM, SPLIT_HIGH_CM, SPLIT_LOW_CM, SPLIT_MIN_SHARE } from '../lib/ensemble';
 import { PHASE_BAND_M } from '../lib/forecast';
 import { useFmt } from '../lib/prefs';
 import { LOW_CENTRES } from './storm/Daily';
@@ -89,6 +89,17 @@ export function About() {
           A snapshot copy is used until it is {SNAPSHOT_MAX_AGE_S / 3600} hours old. Past that, and for what the snapshot leaves out (Run history, base and summit
           ensembles, some Snowpack stations), the browser asks Open-Meteo directly and caches the answer.
         </li>
+      </ul>
+
+      <h2>Verification archive</h2>
+      <ul className="list-disc pl-5">
+        <li>
+          For every 00Z and 12Z cycle, the scheduled job keeps what the forecasts said for the next 10 days: at each resort's mid band (blend and each
+          model) and at each station's own coordinates (the snowpack-scenario models), with the ensemble's 10th/50th/90th percentiles and its chances
+          for the "Chance of snow totals" thresholds ({CHANCE_THRESHOLDS_CM.imperial.map((t) => fmt.snow(t, 0)).join(', ')}). It reuses the snapshot's
+          responses, so it costs no extra Open-Meteo calls, and lives on a separate <code>data/verification</code> branch of the repository.
+        </li>
+        <li>Those records are what the verification against station measurements will use. Until then, every chance on this site is model spread.</li>
       </ul>
 
       <h2>Coverage</h2>

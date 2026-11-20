@@ -7,6 +7,8 @@
 # Jobs are split so third-party npm code never runs where a write-capable token exists:
 #   refresh (read-only, npm scripts disabled) → commit (write, no npm)
 #   → build (read-only: test, build, forecast snapshot into dist/) → deploy (Pages only)
+#                                                                  → archive (write, no npm: verification
+#                                                                    record → data/verification branch)
 name: refresh-and-deploy
 
 on:
@@ -152,6 +154,8 @@ jobs:
     timeout-minutes: 15
     permissions:
       contents: read
+    outputs:
+      verification: ${{ steps.verification.outputs.record }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -172,6 +176,20 @@ jobs:
         env:
           PW_CONTACT: ${{ github.server_url }}/${{ github.repository }}
         run: npm run snapshot || echo "::warning::forecast snapshot incomplete; the site fetches the missing data live"
+      # The snapshot also writes a forecast-verification record (scripts/verification.ts) to .cache/verification/.
+      # It is handed to the archive job, never deployed; nothing here can fail the deploy.
+      - name: Look for a verification record
+        id: verification
+        run: |
+          if compgen -G '.cache/verification/*.json' > /dev/null; then echo "record=1" >> "$GITHUB_OUTPUT"; fi
+      - if: steps.verification.outputs.record == '1'
+        continue-on-error: true
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: verification
+          path: .cache/verification/*.json
+          retention-days: 7 # a failed archive job can be re-run within a week
+          if-no-files-found: ignore
       - uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
       - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
         with:
@@ -191,3 +209,45 @@ jobs:
     steps:
       - id: deployment
         uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
+
+  # Forecast-verification archive. Commits the build job's record to the data/verification branch (never
+  # main), append-only: a cycle already archived by an earlier run is kept as it is. Runs no npm code, and
+  # deploy doesn't wait for it, so a failure here never blocks the site.
+  archive:
+    needs: build
+    if: ${{ !cancelled() && needs.build.result == 'success' && needs.build.outputs.verification == '1' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write # push to data/verification only; this job runs no npm code
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main # the validator comes from main, never from the data branch
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: verification
+          path: ${{ runner.temp }}/incoming
+      - name: Switch to data/verification (an orphan branch, created on first use)
+        run: |
+          cp scripts/validate_verification.py "$RUNNER_TEMP/validate_verification.py"
+          if git ls-remote --exit-code --heads origin data/verification > /dev/null; then
+            git fetch --depth=1 origin data/verification
+            git checkout -B data/verification FETCH_HEAD
+          else
+            git switch --orphan data/verification
+          fi
+      - name: Validate the record and re-serialise it (never copy raw bytes)
+        run: python3 -I "$RUNNER_TEMP/validate_verification.py" --kind cycle "$RUNNER_TEMP/incoming" .
+      - name: Commit and push to data/verification only
+        run: |
+          if [ -d cycles ]; then git add cycles; fi
+          if git diff --cached --quiet; then
+            echo "cycle already archived by an earlier run"
+            exit 0
+          fi
+          names=$(git diff --cached --name-only | xargs -n1 basename | sed 's/\.json$//' | paste -sd ' ')
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "chore(data): Archive forecast cycle $names"
+          git push origin HEAD:refs/heads/data/verification

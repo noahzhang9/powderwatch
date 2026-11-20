@@ -12,7 +12,8 @@
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "obs": "tsx scripts/fetch-obs.ts",
-    "snapshot": "tsx scripts/snapshot-forecasts.ts"
+    "snapshot": "tsx scripts/snapshot-forecasts.ts",
+    "backfill:verification": "tsx scripts/backfill-verification.ts"
   },
   "dependencies": {
     "echarts": "^6.1.0",

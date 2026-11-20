@@ -17,6 +17,8 @@ export const FORECAST = 'https://api.open-meteo.com/v1/forecast';
 export const ENSEMBLE = 'https://ensemble-api.open-meteo.com/v1/ensemble';
 export const SINGLE_RUN = 'https://single-runs-api.open-meteo.com/v1/forecast';
 export const META = 'https://api.open-meteo.com/data';
+/** Previous Runs API: earlier runs' forecasts at fixed 24 h lead offsets. Used only by scripts/backfill-verification.ts. */
+export const PREVIOUS_RUNS = 'https://previous-runs-api.open-meteo.com/v1/forecast';
 
 const FORECAST_TTL = 30 * 60;
 const META_TTL = 10 * 60;
@@ -103,6 +105,35 @@ export function singleRunUrl(pt: Point, modelId: string, runUnix: number, tz: st
   })}`;
 }
 
+/** Lead offsets the Previous Runs API publishes: `<var>_previous_day1` … `_previous_day7`. */
+export const PREVIOUS_RUN_LEADS = [1, 2, 3, 4, 5, 6, 7];
+export const previousRunVar = (variable: string, lead: number) => `${variable}_previous_day${lead}`;
+
+/**
+ * The physics inputs (FORCING_VARS) as forecast 1–7 days before each hour, for local dates
+ * `startDate`..`endDate` (inclusive). Script-only: no view requests it.
+ */
+export function previousRunsUrl(pt: Point, modelIds: string[], tz: string, startDate: string, endDate: string): string {
+  return `${PREVIOUS_RUNS}?${qs({
+    latitude: pt.lat, longitude: pt.lon, elevation: pt.elevation,
+    hourly: PREVIOUS_RUN_LEADS.flatMap((n) => FORCING_VARS.map((v) => previousRunVar(v, n))).join(','), models: modelIds.join(','),
+    start_date: startDate, end_date: endDate, timezone: tz, timeformat: 'unixtime',
+  })}`;
+}
+
+/** One lead offset of a Previous Runs response, as the surface series `deriveModel` takes (physics inputs only). */
+export function parsePreviousRuns(d: OmResponse, modelIds: string[], lead: number): SurfaceHourly[] {
+  const multi = modelIds.length > 1;
+  const time = d.hourly.time as number[];
+  return modelIds.map((m) => ({
+    modelId: m, time,
+    tC: pick(d.hourly, previousRunVar('temperature_2m', lead), m, multi),
+    rh: pick(d.hourly, previousRunVar('relative_humidity_2m', lead), m, multi),
+    precip: pick(d.hourly, previousRunVar('precipitation', lead), m, multi),
+    omSnowCm: [], fzl: [], gust: [],
+  }));
+}
+
 /** Pressure-level profile (no elevation: levels are absolute). */
 export function profileUrl(pt: Omit<Point, 'elevation'>, modelIds: string[], tz: string): string {
   return `${FORECAST}?${qs({
@@ -164,14 +195,13 @@ export async function fetchSingleRun(
   return s;
 }
 
+export type Profiles = Record<string, { time: number[]; levels: ProfileLevel[][] }>;
+
 /** Pressure-level profile per hour for each model (used to compute freezing/snow level). */
-export async function fetchProfiles(
-  pt: Omit<Point, 'elevation'>, modelIds: string[], tz: string,
-): Promise<Record<string, { time: number[]; levels: ProfileLevel[][] }>> {
-  const d = await cachedJson<OmResponse>(profileUrl(pt, modelIds, tz), FORECAST_TTL, 'high');
+export function parseProfiles(d: OmResponse, modelIds: string[]): Profiles {
   const multi = modelIds.length > 1;
   const time = d.hourly.time as number[];
-  const out: Record<string, { time: number[]; levels: ProfileLevel[][] }> = {};
+  const out: Profiles = {};
   for (const m of modelIds) {
     const t = PRESSURE_LEVELS.map((p) => pick(d.hourly, `temperature_${p}hPa`, m, multi));
     const rh = PRESSURE_LEVELS.map((p) => pick(d.hourly, `relative_humidity_${p}hPa`, m, multi));
@@ -190,6 +220,10 @@ export async function fetchProfiles(
   return out;
 }
 
+export async function fetchProfiles(pt: Omit<Point, 'elevation'>, modelIds: string[], tz: string): Promise<Profiles> {
+  return parseProfiles(await cachedJson<OmResponse>(profileUrl(pt, modelIds, tz), FORECAST_TTL, 'high'), modelIds);
+}
+
 export interface EnsembleHourly {
   modelId: string;
   /** Elevation the members were downscaled to, m. */
@@ -199,10 +233,8 @@ export interface EnsembleHourly {
   members: { precip: Series; tC: Series; rh: Series; fzl: Series }[];
 }
 
-export async function fetchEnsemble(
-  pt: Point, modelId: string, tz: string, opts: { pastDays?: number; withFreezingLevel?: boolean } = {},
-): Promise<EnsembleHourly> {
-  const d = await cachedJson<OmResponse>(ensembleUrl(pt, modelId, tz, opts), FORECAST_TTL, 'low');
+/** All members of one ensemble response; `pt` supplies the elevation when the response has none. */
+export function parseEnsemble(d: OmResponse, modelId: string, pt: Point): EnsembleHourly {
   const h = d.hourly;
   const keyFor = (v: string, member: number) => (member === 0 ? v : `${v}_member${String(member).padStart(2, '0')}`);
   const members: EnsembleHourly['members'] = [];
@@ -220,6 +252,12 @@ export async function fetchEnsemble(
     });
   }
   return { modelId, elevation: d.elevation ?? pt.elevation, time: h.time as number[], members };
+}
+
+export async function fetchEnsemble(
+  pt: Point, modelId: string, tz: string, opts: { pastDays?: number; withFreezingLevel?: boolean } = {},
+): Promise<EnsembleHourly> {
+  return parseEnsemble(await cachedJson<OmResponse>(ensembleUrl(pt, modelId, tz, opts), FORECAST_TTL, 'low'), modelId, pt);
 }
 
 export interface RunMeta {

@@ -3,7 +3,7 @@
 
 **Project Proposal — Revision 3, 20 November 2026**
 
-**Status (as of 2026-11-20):** Phases 1–3 are implemented for five resorts. Phase 4 (verification) needs a forecast archive. Phase 5 (alerts and personalization) is partly done: trips exist, alerts do not.
+**Status (as of 2026-11-20):** Phases 1–3 are implemented for five resorts. Phase 4 (verification) has its forecast archive: two records a day on the `data/verification` branch, and a one-time backfill from 2026-10-01; the verification analysis is still to build. Phase 5 (alerts and personalization) is partly done: trips exist, alerts do not.
 
 ---
 
@@ -201,7 +201,7 @@ Example (Whistler alpine, window 24–26 Nov, live on 2026-11-19):
 
 The same period's GFS runs read 74 → 20 → 14 → 0 → 25 cm. A storm vanishing and reappearing between runs is exactly what this view is meant to expose.
 
-*Still to build:* season-scale verification. Comparing a forecast with what actually fell needs PowderWatch's own archive (Phase 4), because single-run retention is about 5 months.
+*Still to build:* season-scale verification. Single-run retention is about 5 months, so it reads PowderWatch's own forecast archive (§6, Phase 4), which keeps every 00Z and 12Z cycle.
 
 ### Feature 5 — Freezing Level and Elevation Analysis *(implemented)*
 
@@ -283,6 +283,7 @@ These remain links.
 | Ensembles | `ensemble-api.open-meteo.com/v1/ensemble` | Member keys: `var`, `var_member01…`. |
 | Past runs | `single-runs-api.open-meteo.com/v1/forecast?run=…` | Retention about 5 months. Requests for runs that aren't published yet return HTTP 400. |
 | Run timing | `api.open-meteo.com/data/<id>/static/meta.json` | Initialisation time, availability time and update interval. |
+| Previous runs (archive backfill) | `previous-runs-api.open-meteo.com/v1/forecast` | `<var>_previous_day1…7`: each hour as forecast 1–7 days earlier, at fixed 24 h lead offsets (so one day mixes runs). Deterministic models only, archived from January 2024. Used once, by `npm run backfill:verification`. |
 | Reanalysis (backtests) | `archive-api.open-meteo.com/v1/archive` | ERA5. |
 
 ### Snow observations
@@ -349,7 +350,8 @@ Browser (React + TypeScript + ECharts, static on GitHub Pages)
 
 GitHub Action (every 4 h at :20 UTC, full station history in the Sunday 00:20 run, and on push)
   refresh: npm run obs → commit: public/data if changed
-  → build (read-only): test → vite build → npm run snapshot (dist/data/fc/) → deploy-pages
+  → build (read-only): test → vite build → npm run snapshot (dist/data/fc/, + verification record) → deploy-pages
+                                                                        └→ archive (write, no npm): data/verification branch
 ```
 
 - **Forecast snapshot** (`scripts/snapshot-forecasts.ts`, `npm run snapshot`):
@@ -362,13 +364,21 @@ GitHub Action (every 4 h at :20 UTC, full station history in the Sunday 00:20 ru
   - **Failure handling:** a failed request is left out of the manifest and the browser fetches it live. The snapshot step cannot block the deploy: it has a 7-minute internal deadline, a 9-minute step timeout and `continue-on-error`.
   - The Content-Security-Policy is unchanged: `connect-src 'self'` covers the snapshot.
 
+- **Verification archive** (`scripts/verification.ts`, branch `data/verification`):
+  - **Which runs:** every snapshot run names the newest 00Z or 12Z cycle that all current global models have run, from the run metadata it already fetches (the cycle hours are the model catalogue's full-length runs; a model more than one cycle behind is listed as lagging rather than holding the cycle back). It writes that cycle's record, and the `archive` job keeps the first record it sees for each cycle and never overwrites it. So each cycle is archived from the first snapshot run that carried it; which run that is depends on when the slowest global model publishes.
+  - **What:** for local days 1–10 (day 1 is the first local day starting after the cycle time; days follow `toDaily`'s convention), at each resort's mid band the blend (with its daily centre count) and each model, and at each station's own point each snowpack-scenario model: daily snowfall through PowderWatch physics, precipitation (negative hourly values, an artefact of some models' de-accumulated output, count as none, as in the rain/snow split), rain, Tmin/Tmax and snow-level range (from the resort's pressure profile, as in the views). Ensembles at both: daily p10/p50/p90 of snowfall and precipitation, the chance of each "Chance of snow totals" threshold (1, 4, 8, 12, 20 in) per day, and the same over 3, 7 and 10 days from day 1. Plus each model's run time and the stations skipped and why. A day counts only when every hour of it has data.
+  - **No extra Open-Meteo calls:** the record reuses the snapshot's responses. Station points come from the Snowpack tab's requests, so a station is archived only when this run's snapshot holds them; a station whose latest reading is too old for a projection (`no-projection`), or whose requests the run skipped for budget (`not-in-snapshot`), is listed in `skipped`. Ensemble run times are not in the snapshot and are not recorded.
+  - **Format:** one JSON file per cycle, `cycles/YYYY-MM/2026-11-20T00Z.json`, about 40–60 kB (10–14 kB gzipped), two a day: 30–45 MB a year as JSON, about a quarter of that as git stores it. Per-cycle files are append-only by construction (a new file per cycle, none ever edited), need no merge, and let the archive job keep the first run's record by checking whether the file exists.
+  - **Path:** the read-only `build` job writes the record to `.cache/verification/` (never into `dist/`) and uploads it as an artifact (kept 7 days, so a failed archive job can be re-run). The `archive` job holds `contents: write` and runs no npm code: it copies `scripts/validate_verification.py` from `main`, switches to `data/verification` (an orphan branch, created on first use), validates the record (allowed key set, finite bounded numbers, 512 kB cap, strict file names) and re-serialises it, then commits and pushes to that branch only. Deploy does not depend on it.
+  - **Backfill:** `npm run backfill:verification` reads the Previous Runs API for 2026-10-01 to 2026-11-19 at the 14 stations that reported in that window (Whistler Roundhouse is silent): 535.5 weighted calls, one request per station. Its records (`backfill/YYYY-MM/<date>.json`) hold, for each valid local date and scenario model, the day as forecast 1–7 days earlier; there are no ensembles or snow levels, and each hour comes from the run 24 h × lead before it rather than from one cycle.
+
 - **Frontend:** React 19, Vite 8, Tailwind 4, ECharts 6 (SVG renderer). The bundle is about 280 kB gzipped, mostly ECharts.
 - **Charts:**
   - One categorical colour per model, fixed and never re-assigned by rank. The palette is validated for colour-vision deficiency in light and dark modes.
   - Light and dark modes are designed separately, not auto-inverted.
   - Every chart has a crosshair tooltip and a table or text alternative.
   - Never two y-axes on one chart.
-- **No D1, Workers or R2 in the MVP.** R2 (or JSON files in the repo) enters with Phase 4 archiving.
+- **No D1, Workers or R2.** The verification archive is JSON files on the repository's `data/verification` branch, so `main` does not grow.
 - **Tests:** Vitest covers the physics, statistics, climatology, snowpack and time-zone logic, snapshot URL parity and the cache's snapshot freshness and fallback. Run `npm test`.
 
 ---
@@ -380,12 +390,12 @@ GitHub Action (every 4 h at :20 UTC, full station history in the Sunday 00:20 ru
 | 1 — Forecast dashboard | Multi-model snowfall, bands, freezing/snow level, temperatures, ensembles, run timing | **Done** |
 | 2 — Snowpack tracker | Station history, percentiles, previous season, depth/SWE | **Done** |
 | 3 — Snowpack projection | Layered model, ensemble spread, scenarios, backtest | **Done** (Cascades calibration) |
-| 4 — Verification | See below | Next |
+| 4 — Verification | See below | Archive running; analysis next |
 | 5 — Personalization & alerts | See below | Trips done |
 
 **Phase 4 — Verification**
 
-1. Archive, from the 4-hourly job, each model's day-1 to day-10 daily snow, precipitation and freezing level per band and station into JSON (or R2): about 50 kB a day for all resorts.
+1. **Archive** (done): every 00Z and 12Z cycle's day-1 to day-10 forecasts at each resort's mid band and each station's own point, with ensemble quantiles and chances, on the `data/verification` branch (§6). Backfilled from 2026-10-01 with the Previous Runs API (days 1–7, deterministic only).
 2. Verify against observations:
    - Precipitation: SNOTEL and BC ΔSWE.
    - Snowfall: SLF `HN_1D`, MeteoSwiss `hns000d0` and ECCC/BC Δdepth.

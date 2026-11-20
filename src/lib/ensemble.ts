@@ -160,6 +160,16 @@ export function probabilityFzlAbove(time: number[], members: MemberSeries[], fro
   return exceedance(hit, w, 1);
 }
 
+// ---------------------------------------------------------------- "Chance of snow totals"
+
+/** The "Chance of snow totals" table's thresholds, cm: whole inches in imperial units (the default), round centimetres in metric. */
+export const CHANCE_THRESHOLDS_CM = {
+  imperial: [1, 4, 8, 12, 20].map((x) => x * 2.54),
+  metric: [2.5, 10, 20, 30, 50],
+} as const;
+/** The table's windows from now, hours. */
+export const CHANCE_HORIZONS_H = [72, 168, 240];
+
 // ---------------------------------------------------------------- per-day distributions
 
 /** "Little or nothing" and "a real storm" thresholds for split-day detection, cm. */

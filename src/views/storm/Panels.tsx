@@ -6,7 +6,7 @@ import { bandInText } from '../../config/resorts';
 import { RequestError, Section, Tile } from '../../components/ui';
 import { loadRunChange, type BandForecast, type EnsembleSet } from '../../hooks/data';
 import { useAsync } from '../../hooks/useAsync';
-import { probabilityAtLeast, probabilityFzlAbove, windowQuantiles, windowTotals } from '../../lib/ensemble';
+import { CHANCE_HORIZONS_H, CHANCE_THRESHOLDS_CM, probabilityAtLeast, probabilityFzlAbove, windowQuantiles, windowTotals } from '../../lib/ensemble';
 import { lastValidTime, windowSum, type DerivedHourly } from '../../lib/forecast';
 import type { RunMeta } from '../../lib/openmeteo';
 import type { Fmt } from '../../lib/prefs';
@@ -110,8 +110,8 @@ function ProbCell({ pr, title }: { pr: number | null; title?: string }) {
 /** Ensemble chances as a compact, shaded table (shade = probability). */
 export function Chances({ ens, now, resort, fmt }: { ens?: EnsembleSet; now: number; resort: Resort; fmt: Fmt }) {
   if (!ens) return null;
-  const thresholdsCm = fmt.units === 'imperial' ? [1, 4, 8, 12, 20].map((x) => x * 2.54) : [2.5, 10, 20, 30, 50];
-  const horizons = [72, 168, 240];
+  const thresholdsCm = CHANCE_THRESHOLDS_CM[fmt.units === 'imperial' ? 'imperial' : 'metric'];
+  const horizons = CHANCE_HORIZONS_H;
   return (
     <Section
       title="Chance of snow totals"

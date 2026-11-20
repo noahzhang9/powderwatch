@@ -33,7 +33,8 @@ and a banner shows how old the snapshot is. The deploy workflow never sets the f
 ## Checks
 
 ```bash
-npm test                               # unit tests (physics, stats, climatology, snowpack, time zones, snapshot URL parity, cache fallback)
+npm test                               # unit tests (physics, stats, climatology, snowpack, time zones, snapshot URL parity, cache fallback,
+                                       # verification record and its validator)
 npm run typecheck
 npx tsx scripts/backtest-snowpack.ts   # snowpack calibration/backtest against SNOTEL (≈2 min)
 ```
@@ -69,6 +70,38 @@ permissions it needs.
     or manual run. Lower-priority groups are skipped when the budget runs out. A failed or partial
     snapshot never blocks the deploy; the browser fetches whatever is missing.
 
+## Forecast-verification archive
+
+Each snapshot run also builds a verification record from the responses it fetched (no extra
+Open-Meteo calls): for the newest 00Z/12Z cycle that every current global model has run, the
+forecasts for local days 1–10 at each resort's mid band (blend and each model) and at each station's
+own point (each snowpack-scenario model), with ensemble quantiles and the "Chance of snow totals"
+chances. `scripts/verification.ts` builds it; docs/proposal.md §6 lists every field.
+
+- The read-only build job writes it to `.cache/verification/<cycle>.json` (never into `dist/`) and
+  uploads it as an artifact.
+- The `archive` job (`contents: write`, no npm code) validates it with
+  `scripts/validate_verification.py`, re-serialises it and commits it to the **`data/verification`**
+  branch as `cycles/YYYY-MM/<cycle>.json`. It creates the branch as an orphan on first use and never
+  overwrites a file, so each cycle keeps the record from the first run that carried it. `main` never
+  holds archive data, and the deploy doesn't wait for the archive.
+- Read it with `git fetch origin data/verification` and
+  `git worktree add ../powderwatch-verification data/verification`.
+
+**One-time backfill.** `npm run backfill:verification` reads Open-Meteo's Previous Runs API at each
+station that reported since the start of the window (each scenario model's forecast for every past
+day, 1–7 days ahead) and writes `.cache/verification-backfill/<date>.json`. It refuses to run when
+its estimate exceeds 1,500 weighted calls; 2026-10-01 to 2026-11-19 at 14 stations costs 535.5. It
+pushes nothing. Once the first `archive` run has created the branch, add the files to it:
+
+```bash
+git fetch origin data/verification
+git worktree add ../powderwatch-verification data/verification
+python3 -I scripts/validate_verification.py --kind backfill .cache/verification-backfill ../powderwatch-verification
+cd ../powderwatch-verification
+git add backfill && git commit -m "chore(data): Backfill verification archive from Previous Runs" && git push origin data/verification
+```
+
 One-time setup:
 
 1. Create a **public** GitHub repository (Pages on a free account requires public) and push `main`.
@@ -88,6 +121,7 @@ src/lib/        physics, forecast blend, ensembles, snowpack model, climatology,
 src/views/      Dashboard, StormView, HistoryView, SnowpackView, About (methods)
 src/lib/requests.ts  which Open-Meteo requests each view makes (shared with the snapshot script)
 scripts/        fetch-obs.ts (station ingest), snapshot-forecasts.ts + snapshot-plan.ts (forecast snapshot),
+                verification.ts + validate_verification.py + backfill-verification.ts (verification archive),
                 backtest-snowpack.ts (calibration)
 public/data/obs station daily series (generated)
 dist/data/fc    forecast snapshot (generated at deploy, not committed)

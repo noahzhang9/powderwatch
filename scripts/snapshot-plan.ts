@@ -8,7 +8,7 @@
  */
 import { ENSEMBLES } from '../src/config/models';
 import { RESORTS, type Resort } from '../src/config/resorts';
-import { stationsFor } from '../src/config/stations';
+import { stationsFor, type StationDef } from '../src/config/stations';
 import { SNAPSHOT_INTERVAL_H, SNAPSHOT_MAX_AGE_S } from '../src/lib/cache';
 import type { StationFile } from '../src/lib/obs';
 import { ENSEMBLE, ensembleUrl, profileUrl, runMetaUrl, singleRunUrl, surfaceUrl, type RunMeta, type SurfaceHourly } from '../src/lib/openmeteo';
@@ -78,6 +78,25 @@ export const metaIdsFor = (resorts: Resort[] = RESORTS) => [...new Set(resorts.f
 /** The storm tracker's surface request at mid-mountain (its default band). */
 export const midSurfaceUrl = (r: Resort) => surfaceUrl(pointOf(midBand(r)), r.models, r.tz);
 
+/**
+ * The Snowpack tab's requests at a station for the local date `today`: all ensembles and the single-model
+ * scenarios, at the station's own point. Null when its latest reading is too old to project from (no requests).
+ * These are the snapshot's only forecasts at station points; the verification archive reuses them.
+ */
+export function snowpackRequests(r: Resort, st: StationDef, file: StationFile | null, today: string): { ensembles: string[]; scenario: string } | null {
+  const { stale, pastDays } = projectionStart(file, 'depthCm', today);
+  if (stale) return null;
+  const pt = pointOf(st);
+  return {
+    ensembles: ENSEMBLES.map((e) => ensembleUrl(pt, e.id, r.tz, { pastDays, withFreezingLevel: SNOWPACK_WITH_FREEZING_LEVEL })),
+    scenario: surfaceUrl(pt, SCENARIO_MODELS, r.tz, scenarioSurface(pastDays)),
+  };
+}
+
+/** Local dates a snapshot taken at `nowS` serves: today and, if it changes within `servedForS`, the next. */
+export const servedDates = (nowS: number, tz: string, servedForS = SNAPSHOT_MAX_AGE_S) =>
+  [...new Set([localDate(nowS, tz), localDate(nowS + servedForS, tz)])];
+
 export function planSnapshot(input: PlanInput): PlanGroup[] {
   const resorts = input.resorts ?? RESORTS;
   const servedFor = input.servedForS ?? SNAPSHOT_MAX_AGE_S;
@@ -107,18 +126,14 @@ export function planSnapshot(input: PlanInput): PlanGroup[] {
     // Snowpack projection inputs at each station, for the local date now and, if it changes
     // while this snapshot is served, the next one (the projection then needs one more past day).
     const files = stations.map((s) => input.obs[s.id] ?? null);
-    const dates = [...new Set([localDate(input.nowS, r.tz), localDate(input.nowS + servedFor, r.tz)])];
+    const dates = servedDates(input.nowS, r.tz, servedFor);
     const def = defaultStationIndex(files, dates[0]);
     stations.forEach((st, i) => {
       dates.forEach((today, k) => {
-        const { stale, pastDays } = projectionStart(files[i], 'depthCm', today);
-        if (stale) return;
-        const pt = pointOf(st);
+        const req = snowpackRequests(r, st, files[i], today);
+        if (!req) return;
         const priority = (i === def ? PRIORITY.snowpackDefault : PRIORITY.snowpackOther) + k;
-        add(priority, `${r.id}: snowpack ${st.id}${k ? ` (from ${today})` : ''}`, [
-          ...ENSEMBLES.map((e) => ensembleUrl(pt, e.id, r.tz, { pastDays, withFreezingLevel: SNOWPACK_WITH_FREEZING_LEVEL })),
-          surfaceUrl(pt, SCENARIO_MODELS, r.tz, scenarioSurface(pastDays)),
-        ]);
+        add(priority, `${r.id}: snowpack ${st.id}${k ? ` (from ${today})` : ''}`, [...req.ensembles, req.scenario]);
       });
     });
   }
@@ -136,7 +151,8 @@ const MEMBERS = new Map(ENSEMBLES.map((e) => [e.id, e.members]));
 /**
  * Open-Meteo's charge for one request, in "API calls" (the free tier allows
  * < 10,000 a day): variables × models (× members for ensembles) / 10, scaled by
- * days / 14 beyond two weeks, minimum 1. Run metadata is a static file and free.
+ * days / 14 beyond two weeks, minimum 1. Days come from `forecast_days` + `past_days`, or from
+ * `start_date`..`end_date` inclusive (the backfill's date ranges). Run metadata is a static file and free.
  * Same formula as the server's `calculateQueryWeight`; responses report it as X-RateLimit-Cost.
  */
 export function estimateCost(url: string): number {
@@ -146,7 +162,11 @@ export function estimateCost(url: string): number {
   const models = (u.searchParams.get('models') ?? '').split(',').filter(Boolean);
   const ensemble = url.startsWith(ENSEMBLE);
   const members = models.reduce((n, m) => n + (ensemble ? MEMBERS.get(m) ?? 1 : 1), 0);
-  const days = Number(u.searchParams.get('forecast_days') ?? 7) + Number(u.searchParams.get('past_days') ?? 0);
+  const start = u.searchParams.get('start_date');
+  const end = u.searchParams.get('end_date');
+  const days = start && end
+    ? Math.round((Date.parse(`${end}T00:00:00Z`) - Date.parse(`${start}T00:00:00Z`)) / 86_400_000) + 1
+    : Number(u.searchParams.get('forecast_days') ?? 7) + Number(u.searchParams.get('past_days') ?? 0);
   const v = (vars * members) / 10;
   return Math.max(1, v, (v * days) / 14);
 }

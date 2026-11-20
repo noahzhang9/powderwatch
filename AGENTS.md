@@ -16,7 +16,9 @@ npm run build:local    # snapshot-only build (VITE_SNAPSHOT_ONLY=1): copies .cac
 npm run preview:local  # build:local, then serve it on 127.0.0.1:4173. Makes no Open-Meteo calls
 npm run dev            # 127.0.0.1:5173 with hot reload
 npm run obs            # refresh station data → public/data/obs/*.json (incremental; FULL_REFRESH=1 for full history)
-npm run snapshot       # fetch the forecast snapshot → dist/data/fc/ and .cache/fc/ (costs ~1,250 Open-Meteo weighted calls)
+npm run snapshot       # fetch the forecast snapshot → dist/data/fc/ and .cache/fc/ (costs ~1,250 Open-Meteo weighted calls);
+                       # also writes the verification record → .cache/verification/
+npm run backfill:verification -- --dry-run   # one-time archive backfill (Previous Runs API, ~540 weighted calls); see README
 npx tsx scripts/backtest-snowpack.ts   # snowpack calibration against SNOTEL (~2 min, uses ERA5 via Open-Meteo)
 ```
 
@@ -39,9 +41,10 @@ For browser checks, use `npm run preview:local`, not a fresh `npm run snapshot`.
 | `src/lib/cache.ts` | Fetch cache: memory → IndexedDB → snapshot manifest → live, with priority scheduling and 429 backoff. Snapshot-only builds never go live (`snapshotUse`) |
 | `src/hooks/data.ts` | `load*` functions and hooks that assemble requests into view data |
 | `src/views/` | Dashboard, Storm tracker (`StormView.tsx`, `storm/`), Run history, Snowpack, Methods (`About.tsx`) |
-| `scripts/` | `fetch-obs.ts` (station ingest), `snapshot-plan.ts` + `snapshot-forecasts.ts` (forecast snapshot), `backtest-snowpack.ts` |
+| `scripts/` | `fetch-obs.ts` (station ingest), `snapshot-plan.ts` + `snapshot-forecasts.ts` (forecast snapshot), `verification.ts` (verification record builder), `validate_verification.py` (the archive job's validator), `backfill-verification.ts`, `backtest-snowpack.ts` |
 | `public/data/obs/` | Generated station series (committed by the workflow; never edit by hand) |
-| `.github/workflows/refresh-and-deploy.yml` | Every 4 h + on push to `main`: refresh → commit → build + snapshot → deploy |
+| `.github/workflows/refresh-and-deploy.yml` | Every 4 h + on push to `main`: refresh → commit → build + snapshot → deploy, and archive (verification record → `data/verification`) |
+| `data/verification` branch | Forecast-verification archive (`cycles/YYYY-MM/<cycle>.json`, `backfill/YYYY-MM/<date>.json`). Written only by the `archive` job and the validated backfill; never merged into `main` |
 
 ## Invariants: don't break these
 
@@ -59,10 +62,11 @@ If parity drifts, the cache silently stops working, and visits fall back to live
 **Use pure single-model ids.** Don't use the `*_seamless` ids for deterministic models: they splice in regional models and would double-count them in the blend. `ncep_gefs_seamless` for the GEFS ensemble is the deliberate exception (it only extends one ensemble's range).
 
 **Workflow security** (`.github/workflows/refresh-and-deploy.yml`):
-- Top-level `permissions: {}`. Only the `commit` job gets `contents: write`, and it runs **no npm code** (checkout, artifact download, system `python3`, `git`).
+- Top-level `permissions: {}`. Only the `commit` and `archive` jobs get `contents: write`, and they run **no npm code** (checkout, artifact download, system `python3`, `git`).
 - `refresh` and `build` are read-only with `persist-credentials: false`. `refresh` installs with `--ignore-scripts`.
 - Pin every action to a full commit SHA, with the tag in a comment. Don't add `pull_request`, `pull_request_target` or `workflow_run` triggers, and don't interpolate `${{ github.event.* }}` into `run:`; pass values through `env`.
 - The `commit` job validates incoming data (names, shape, finite bounded numbers) and re-serialises it rather than copying raw bytes.
+- The `archive` job does the same for the verification record the read-only `build` job uploads: `scripts/validate_verification.py` (copied from `main` before switching branch, run with `python3 -I`) checks the file name, an allowed key set, finite bounded numbers and a size cap, then re-serialises it. It pushes **only** to `data/verification` (created as an orphan branch on first use) and never overwrites an archived file. `deploy` doesn't depend on it, and nothing in `build` that produces the record can fail the build. When you change the record (`scripts/verification.ts`), change the validator with it; `scripts/verification.test.ts` runs one on the other.
 
 **Browser security.**
 - The production build ships a Content-Security-Policy meta tag (`vite.config.ts`). A new API host must be added to `connect-src`, or the browser will block it.
@@ -79,7 +83,7 @@ If parity drifts, the cache silently stops working, and visits fall back to live
 - SLF, BC ASWS and NWAC send no CORS headers, and SLF's terms forbid per-user calls. Fetch them only from `scripts/fetch-obs.ts` on the schedule, never from the browser.
 - NWAC has no public API or licence: links only.
 - Keep the attribution strings in `stations.ts`, the footer in `App.tsx` and `public/data/NOTICE.md` intact, and update them when adding a source.
-- Never commit `dist/`, `.cache/` or snapshot files.
+- Never commit `dist/`, `.cache/` or snapshot files. Verification records go to the `data/verification` branch only, never `main`.
 
 **Station depths are not resort base depths.** The UI must always label them as measurements at a named station and elevation.
 

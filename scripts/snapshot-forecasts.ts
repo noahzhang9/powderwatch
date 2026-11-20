@@ -22,9 +22,14 @@
  * `vite build` emptying dist/: `npm run preview:local` builds a snapshot-only
  * site from it without calling Open-Meteo again.
  *
+ * From the same responses (no extra calls) it writes the forecast-verification
+ * record for the global cycle this run carries (scripts/verification.ts) to
+ * .cache/verification/<cycle>.json, best effort. The workflow uploads it and its
+ * `archive` job commits it to the data/verification branch; it is never deployed.
+ *
  * Env: PW_CONTACT (URL added to the User-Agent), SNAPSHOT_MAX_COST (per-run
  * budget, default 1,250 weighted calls, raised to fit the first screens),
- * SNAPSHOT_OUT (output directory).
+ * SNAPSHOT_OUT (output directory), VERIFICATION_OUT (record directory).
  */
 import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
@@ -37,17 +42,19 @@ import {
   LOCAL_SNAPSHOT_DIR, SNAPSHOT_DIR, SNAPSHOT_FILE_RE, SNAPSHOT_INTERVAL_H, SNAPSHOT_MANIFEST, type SnapshotEntry, type SnapshotManifest,
 } from '../src/lib/cache';
 import type { StationFile } from '../src/lib/obs';
-import { parseRunMeta, parseSurface, runMetaUrl, type RunMeta, type SurfaceHourly } from '../src/lib/openmeteo';
+import { parseRunMeta, parseSurface, runMetaUrl, type OmResponse, type RunMeta, type SurfaceHourly } from '../src/lib/openmeteo';
 import {
   DEFAULT_MAX_COST, FIRST_SCREENS, PRIORITY, RUNS_PER_DAY, estimateCost, firstScreenCost, groupCost, metaIdsFor, midSurfaceUrl, planSnapshot, runBudget,
   selectWithinBudget,
 } from './snapshot-plan';
+import { buildVerificationRecord, recordFileName } from './verification';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const OUT = process.env.SNAPSHOT_OUT ? resolve(process.env.SNAPSHOT_OUT) : join(ROOT, 'dist', SNAPSHOT_DIR);
 /** Copy kept across builds for snapshot-only local previews. */
 const LOCAL_COPY = join(ROOT, LOCAL_SNAPSHOT_DIR);
 const OBS = join(ROOT, 'public/data/obs');
+const VERIFICATION_OUT = process.env.VERIFICATION_OUT ? resolve(process.env.VERIFICATION_OUT) : join(ROOT, '.cache/verification');
 const CONTACT = process.env.PW_CONTACT;
 const UA = `PowderWatch/0.2 (personal snow dashboard; forecast snapshot every ${SNAPSHOT_INTERVAL_H} h${CONTACT ? `; +${CONTACT}` : ''})`;
 const MAX_CONCURRENT = 3;
@@ -238,6 +245,25 @@ async function main() {
       () => console.log(`local copy: ${files.size} files + manifest in ${LOCAL_COPY} (npm run preview:local)`),
       (err: Error) => console.warn(`local copy in ${LOCAL_COPY} not written: ${err.message}`),
     );
+  }
+
+  // Verification record: from responses already fetched; it must never fail the snapshot or the deploy.
+  try {
+    const memo = new Map<string, OmResponse | undefined>();
+    const json = (u: string) => {
+      if (!memo.has(u)) memo.set(u, parsed(results.get(u), (d: OmResponse) => d));
+      return memo.get(u);
+    };
+    const rec = buildVerificationRecord({ nowS, meta, obs, json });
+    if (rec) {
+      const body = JSON.stringify(rec);
+      await mkdir(VERIFICATION_OUT, { recursive: true });
+      await writeFile(join(VERIFICATION_OUT, recordFileName(rec)), body);
+      console.log(`verification record ${rec.cycle}: ${rec.points.length} points, ${rec.skipped.length} stations skipped ` +
+        `(${rec.skipped.map((x) => `${x.id} ${x.reason}`).join(', ') || 'none'}), ${(Buffer.byteLength(body) / 1e3).toFixed(1)} kB → ${VERIFICATION_OUT}`);
+    } else console.log('verification record: run metadata names no cycle; none written');
+  } catch (err) {
+    console.warn(`::warning::verification record not written: ${(err as Error).message}`);
   }
 
   const secs = ((Date.now() - t0) / 1000).toFixed(0);
