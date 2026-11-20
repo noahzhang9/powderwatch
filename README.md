@@ -20,7 +20,15 @@ npm run build && npm run snapshot && npm run preview   # http://127.0.0.1:4173
 
 Both servers bind to 127.0.0.1 only. `npm run snapshot` is optional locally: without it (and in
 `npm run dev`) the browser calls Open-Meteo directly. Run it after `npm run build`, which empties
-`dist/`.
+`dist/`. It also keeps a copy in `.cache/fc/`, so later local previews need no new Open-Meteo calls:
+
+```bash
+npm run preview:local   # snapshot-only build from .cache/fc/, served on http://127.0.0.1:4173
+```
+
+The snapshot-only build (`VITE_SNAPSHOT_ONLY=1`) uses the local snapshot at any age and never calls
+Open-Meteo. Anything the snapshot doesn't hold says "Not in the local snapshot (snapshot-only mode)",
+and a banner shows how old the snapshot is. The deploy workflow never sets the flag.
 
 ## Checks
 

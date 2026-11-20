@@ -3,7 +3,7 @@ import { MODELS } from '../config/models';
 import type { BandKey, Resort } from '../config/resorts';
 import { bandInText } from '../config/resorts';
 import { Chart, baseOption, tipHeader, tipRow, type EChartsCoreOption } from '../components/Chart';
-import { Lazy, Loading, ModelChip, Notice, Section, Seg } from '../components/ui';
+import { Lazy, Loading, ModelChip, Notice, RequestError, Section, Seg } from '../components/ui';
 import { useBandForecast, useEnsembles, useRunMeta, type BandForecast, type EnsembleSet } from '../hooks/data';
 import { useNarrow } from '../hooks/useNarrow';
 import { useHashParam } from '../hooks/useRoute';
@@ -100,11 +100,7 @@ export function StormView({ resort }: { resort: Resort }) {
         </details>
       ) : <div className="mt-3">{chips}<RunsRow ids={resort.models} meta={meta.data} /></div>)}
       <div aria-live="polite">
-        {fc.error && (
-          <Notice tone="error">
-            Forecast request failed: {fc.error.message} <button type="button" className="btn ml-2" onClick={fc.retry}>Retry</button>
-          </Notice>
-        )}
+        {fc.error && <RequestError what="Forecast" error={fc.error} retry={fc.retry} />}
         {!data && !fc.error && <Loading what="model forecasts" />}
       </div>
       {data?.missing.length ? <Notice>No data at this point from: {data.missing.map((id) => MODELS[id]?.label ?? id).join(', ')}.</Notice> : null}
@@ -135,9 +131,7 @@ export function StormView({ resort }: { resort: Resort }) {
             )}
             {showTable && <DailyTable data={data} tz={resort.tz} fmt={fmt} />}
           </Section>
-          {ens.error && (
-            <Notice tone="error">Ensemble request failed: {ens.error.message} <button type="button" className="btn ml-2" onClick={ens.retry}>Retry</button></Notice>
-          )}
+          {ens.error && <RequestError what="Ensemble" error={ens.error} retry={ens.retry} />}
           <Chances ens={ens.data} now={now} resort={resort} fmt={fmt} />
           <Lazy><RunChange data={data} meta={meta.data} band={band} resort={resort} now={now} fmt={fmt} /></Lazy>
           <Section

@@ -90,11 +90,13 @@ const allUrls = (plan: PlanGroup[]) => plan.flatMap((g) => g.urls);
 describe('snapshot plan', () => {
   beforeEach(() => {
     vi.useFakeTimers({ toFake: ['Date'] });
+    vi.stubEnv('VITE_SNAPSHOT_ONLY', ''); // replay the production build's requests
     stubNetwork();
   });
   afterEach(() => {
     vi.useRealTimers();
     vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
   });
 
   it('holds exactly the URLs the browser requests, now and until the snapshot expires', async () => {

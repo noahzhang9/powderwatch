@@ -7,6 +7,8 @@
     "dev": "vite --host 127.0.0.1",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview --host 127.0.0.1 --port 4173 --strictPort",
+    "build:local": "VITE_SNAPSHOT_ONLY=1 npm run build",
+    "preview:local": "npm run build:local && npm run preview",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "obs": "tsx scripts/fetch-obs.ts",

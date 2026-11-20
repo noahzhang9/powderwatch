@@ -18,6 +18,10 @@
  * scripts/snapshot-plan.ts). Failed requests are logged and left out of the
  * manifest; the exit code is 1 if any failed.
  *
+ * It also keeps a copy in .cache/fc/ (gitignored, best effort), which survives
+ * `vite build` emptying dist/: `npm run preview:local` builds a snapshot-only
+ * site from it without calling Open-Meteo again.
+ *
  * Env: PW_CONTACT (URL added to the User-Agent), SNAPSHOT_MAX_COST (per-run
  * budget, default 1,250 weighted calls, raised to fit the first screens),
  * SNAPSHOT_OUT (output directory).
@@ -29,7 +33,9 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { RESORTS } from '../src/config/resorts';
 import { STATIONS } from '../src/config/stations';
-import { SNAPSHOT_DIR, SNAPSHOT_FILE_RE, SNAPSHOT_INTERVAL_H, SNAPSHOT_MANIFEST, type SnapshotEntry, type SnapshotManifest } from '../src/lib/cache';
+import {
+  LOCAL_SNAPSHOT_DIR, SNAPSHOT_DIR, SNAPSHOT_FILE_RE, SNAPSHOT_INTERVAL_H, SNAPSHOT_MANIFEST, type SnapshotEntry, type SnapshotManifest,
+} from '../src/lib/cache';
 import type { StationFile } from '../src/lib/obs';
 import { parseRunMeta, parseSurface, runMetaUrl, type RunMeta, type SurfaceHourly } from '../src/lib/openmeteo';
 import {
@@ -39,6 +45,8 @@ import {
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const OUT = process.env.SNAPSHOT_OUT ? resolve(process.env.SNAPSHOT_OUT) : join(ROOT, 'dist', SNAPSHOT_DIR);
+/** Copy kept across builds for snapshot-only local previews. */
+const LOCAL_COPY = join(ROOT, LOCAL_SNAPSHOT_DIR);
 const OBS = join(ROOT, 'public/data/obs');
 const CONTACT = process.env.PW_CONTACT;
 const UA = `PowderWatch/0.2 (personal snow dashboard; forecast snapshot every ${SNAPSHOT_INTERVAL_H} h${CONTACT ? `; +${CONTACT}` : ''})`;
@@ -144,6 +152,16 @@ async function readObs(): Promise<Record<string, StationFile | null>> {
   return out;
 }
 
+/** Writes the snapshot files and manifest (atomically) to `dir`, then removes files from earlier runs. */
+async function writeSnapshot(dir: string, files: Map<string, string>, manifest: SnapshotManifest) {
+  await mkdir(dir, { recursive: true });
+  for (const [file, body] of files) await writeFile(join(dir, file), body);
+  const tmp = join(dir, `${SNAPSHOT_MANIFEST}.tmp`);
+  await writeFile(tmp, JSON.stringify(manifest));
+  await rename(tmp, join(dir, SNAPSHOT_MANIFEST));
+  for (const f of await readdir(dir)) if (SNAPSHOT_FILE_RE.test(f) && !files.has(f)) await rm(join(dir, f));
+}
+
 function parsed<T>(r: Result | undefined, f: (json: never) => T): T | undefined {
   if (!r?.ok) return undefined;
   try {
@@ -182,8 +200,8 @@ async function main() {
   if (skipped.some((g) => g.priority <= FIRST_SCREENS)) console.log('::warning::first-screen groups skipped: their cost is over HARD_MAX_COST');
   await fetchAll(included.flatMap((g) => g.urls), results);
 
-  await mkdir(OUT, { recursive: true });
   const entries: Record<string, SnapshotEntry> = {};
+  const files = new Map<string, string>();
   let saved = 0;
   let savedBytes = 0;
   const failed: string[] = [];
@@ -200,7 +218,7 @@ async function main() {
       }
       const file = `${sha(u).slice(0, 16)}-${sha(r.body!).slice(0, 10)}.json`;
       if (!SNAPSHOT_FILE_RE.test(file)) throw new Error(`bad snapshot file name ${file}`);
-      await writeFile(join(OUT, file), r.body!);
+      files.set(file, r.body!);
       entries[u] = { file, fetchedAt: r.fetchedAt! };
       ok++;
       bytes += Buffer.byteLength(r.body!);
@@ -213,12 +231,14 @@ async function main() {
   for (const g of skipped) console.log(`– ${g.label.padEnd(44)} skipped: over the per-run budget (est. ${fmtCost(groupCost(g))})`);
 
   const manifest: SnapshotManifest = { version: 1, generatedAt: nowS, entries };
-  const tmp = join(OUT, `${SNAPSHOT_MANIFEST}.tmp`);
-  await writeFile(tmp, JSON.stringify(manifest));
-  await rename(tmp, join(OUT, SNAPSHOT_MANIFEST));
-  // Remove files from earlier local runs.
-  const used = new Set(Object.values(entries).map((e) => e.file));
-  for (const f of await readdir(OUT)) if (SNAPSHOT_FILE_RE.test(f) && !used.has(f)) await rm(join(OUT, f));
+  await writeSnapshot(OUT, files, manifest);
+  if (resolve(LOCAL_COPY) !== resolve(OUT)) {
+    // Best effort: the local copy must never fail a deploy.
+    await writeSnapshot(LOCAL_COPY, files, manifest).then(
+      () => console.log(`local copy: ${files.size} files + manifest in ${LOCAL_COPY} (npm run preview:local)`),
+      (err: Error) => console.warn(`local copy in ${LOCAL_COPY} not written: ${err.message}`),
+    );
+  }
 
   const secs = ((Date.now() - t0) / 1000).toFixed(0);
   console.log(`done in ${secs} s: ${stats.requests} HTTP requests (${stats.retries} retries), ${saved} saved, ${failed.length} failed, ` +

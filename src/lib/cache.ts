@@ -4,6 +4,10 @@
  * Before going to the network it consults the forecast snapshot that the
  * scheduled job publishes with the site (scripts/snapshot-forecasts.ts).
  * Also limits concurrent network requests to stay polite to free APIs.
+ *
+ * Snapshot-only builds (VITE_SNAPSHOT_ONLY=1, `npm run preview:local`) never
+ * call Open-Meteo: they use snapshot copies of any age, and anything not in
+ * the snapshot fails with NotInSnapshotError, which views show inline.
  */
 
 const DB_NAME = 'powderwatch';
@@ -134,6 +138,11 @@ export class HttpError extends Error {
 /** Snapshot location, relative to the site root. */
 export const SNAPSHOT_DIR = 'data/fc/';
 export const SNAPSHOT_MANIFEST = 'manifest.json';
+/**
+ * Where `npm run snapshot` also keeps its output, relative to the repo root. `vite build` empties
+ * dist/ (snapshot included); snapshot-only builds copy this back in (vite.config.ts). Gitignored.
+ */
+export const LOCAL_SNAPSHOT_DIR = '.cache/fc/';
 /** The scheduled job refreshes the snapshot this often (keep in step with the workflow's cron). */
 export const SNAPSHOT_INTERVAL_H = 4;
 /** Snapshot copies younger than this are used instead of calling Open-Meteo: one interval plus 30 minutes for a late run. */
@@ -172,22 +181,74 @@ export function parseManifest(x: unknown): Map<string, SnapshotEntry> | null {
 
 export const snapshotIsFresh = (e: SnapshotEntry, nowS: number) => nowS - e.fetchedAt < SNAPSHOT_MAX_AGE_S;
 
+/**
+ * Build-time switch for local testing: `VITE_SNAPSHOT_ONLY=1` (set by `npm run build:local` and
+ * `npm run preview:local`, never by the deploy workflow). Read when called, so the snapshot
+ * scripts can import this module outside Vite.
+ */
+export const isSnapshotOnly = (): boolean => import.meta.env.VITE_SNAPSHOT_ONLY === '1';
+
+/** What a request uses: the snapshot copy, a live Open-Meteo call, or neither (snapshot-only mode, no copy). */
+export type SnapshotUse = 'snapshot' | 'live' | 'unavailable';
+
+/** Normal builds use a fresh snapshot copy and go live otherwise; snapshot-only builds use any copy and never go live. */
+export function snapshotUse(entry: SnapshotEntry | undefined, nowS: number, snapshotOnly: boolean): SnapshotUse {
+  if (snapshotOnly) return entry ? 'snapshot' : 'unavailable';
+  return entry && snapshotIsFresh(entry, nowS) ? 'snapshot' : 'live';
+}
+
+export const NOT_IN_SNAPSHOT = 'Not in the local snapshot (snapshot-only mode)';
+
+/** A request a snapshot-only build can't serve; views show it as an inline message, not a failure. */
+export class NotInSnapshotError extends Error {
+  readonly url: string;
+  constructor(url: string) {
+    super(NOT_IN_SNAPSHOT);
+    this.name = 'NotInSnapshotError';
+    this.url = url;
+  }
+}
+
+export const isNotInSnapshot = (err: unknown): err is NotInSnapshotError => err instanceof NotInSnapshotError;
+
+/** The manifest's own timestamp (when the job started), if it is a plausible unix time. */
+export function manifestGeneratedAt(x: unknown): number | null {
+  const t = (x as Partial<SnapshotManifest> | null)?.generatedAt;
+  return typeof t === 'number' && Number.isFinite(t) && t > 0 ? t : null;
+}
+
 const snapshotBase = () => `${import.meta.env.BASE_URL}${SNAPSHOT_DIR}`;
 
-let manifest: { loadedAt: number; entries: Promise<Map<string, SnapshotEntry> | null> } | null = null;
+interface LoadedManifest {
+  entries: Map<string, SnapshotEntry>;
+  generatedAt: number | null;
+}
+
+let manifest: { loadedAt: number; data: Promise<LoadedManifest | null> } | null = null;
 
 /** The manifest, fetched once per page (revalidated, never a stale HTTP-cache copy). */
-function snapshotEntries(): Promise<Map<string, SnapshotEntry> | null> {
+function loadManifest(): Promise<LoadedManifest | null> {
   if (!manifest || Date.now() - manifest.loadedAt > MANIFEST_RELOAD_MS) {
     manifest = {
       loadedAt: Date.now(),
-      entries: fetch(`${snapshotBase()}${SNAPSHOT_MANIFEST}`, { cache: 'no-cache' })
+      data: fetch(`${snapshotBase()}${SNAPSHOT_MANIFEST}`, { cache: 'no-cache' })
         .then((r) => (r.ok ? r.json() : null))
-        .then(parseManifest)
+        .then((json: unknown) => {
+          const entries = parseManifest(json);
+          return entries && { entries, generatedAt: manifestGeneratedAt(json) };
+        })
         .catch(() => null), // no snapshot deployed (dev server, first deploy): everything goes live
     };
   }
-  return manifest.entries;
+  return manifest.data;
+}
+
+const snapshotEntries = async () => (await loadManifest())?.entries ?? null;
+
+/** When the deployed snapshot was taken and how many requests it holds (null: no snapshot). */
+export async function snapshotInfo(): Promise<{ generatedAt: number | null; entries: number } | null> {
+  const m = await loadManifest();
+  return m && { generatedAt: m.generatedAt, entries: m.entries.size };
 }
 
 async function fetchSnapshotFile<T>(file: string): Promise<T> {
@@ -230,6 +291,9 @@ async function fetchLive<T>(url: string): Promise<T> {
  * copy at least as new) → Open-Meteo → on failure, the newest older copy
  * (stale snapshot or stale cache), so a rate limit never empties a chart
  * that has any data to show.
+ *
+ * Snapshot-only builds treat every snapshot copy as fresh and replace the
+ * Open-Meteo call with a NotInSnapshotError (after any older cached copy).
  */
 export async function cachedJson<T>(url: string, ttlSec: number, priority: Priority = 'high'): Promise<T> {
   const now = Date.now() / 1000;
@@ -259,13 +323,19 @@ export async function cachedJson<T>(url: string, ttlSec: number, priority: Prior
       const data = await (queued ? withSlot(priority, read) : read());
       return keep({ t: snap!.fetchedAt, data });
     };
-    if (snap && snapshotIsFresh(snap, now)) {
+    const snapshotOnly = isSnapshotOnly();
+    if (snapshotUse(snap, now, snapshotOnly) === 'snapshot') {
       if (storedCovers) return keep(stored);
       try {
         return await readSnapshot(true);
       } catch {
         /* snapshot file missing: go live */
       }
+    }
+    if (snapshotOnly) {
+      // Never call Open-Meteo: an older cached copy if there is one, otherwise say why there's no data.
+      if (stored) return keep(stored);
+      throw new NotInSnapshotError(url);
     }
 
     try {

@@ -2,7 +2,8 @@ import { useEffect, useRef } from 'react';
 import { RESORTS, resortById } from './config/resorts';
 import { href, useRoute } from './hooks/useRoute';
 import { usePrefs } from './lib/prefs';
-import { Seg } from './components/ui';
+import { Seg, SnapshotOnlyBanner } from './components/ui';
+import { isSnapshotOnly } from './lib/cache';
 import { Dashboard } from './views/Dashboard';
 import { ResortView, TABS } from './views/ResortView';
 import { About } from './views/About';
@@ -42,6 +43,7 @@ export function App() {
       <a href="#main" className="skip-link" onClick={(e) => { e.preventDefault(); document.getElementById('main')?.focus(); }}>
         Skip to content
       </a>
+      {isSnapshotOnly() && <SnapshotOnlyBanner />}
       <header className="border-b border-line bg-surface">
         <div className="max-w-7xl mx-auto px-4 py-3 flex flex-wrap items-center gap-x-6 gap-y-2">
           <a href={href()} className="font-semibold text-lg tracking-tight flex items-center gap-2">

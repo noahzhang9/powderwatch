@@ -2,7 +2,7 @@
 import { MODELS } from '../../config/models';
 import type { Band, Resort } from '../../config/resorts';
 import { bandInText } from '../../config/resorts';
-import { Notice, Section, Tile } from '../../components/ui';
+import { RequestError, Section, Tile } from '../../components/ui';
 import { loadRunChange, type BandForecast, type EnsembleSet } from '../../hooks/data';
 import { useAsync } from '../../hooks/useAsync';
 import { probabilityAtLeast, probabilityFzlAbove, windowQuantiles, windowTotals } from '../../lib/ensemble';
@@ -172,7 +172,7 @@ export function RunChange({ data, meta, band, resort, now, fmt }: {
       title="Change since the previous run"
       subtitle="Each global model's latest run against its run 12 hours earlier, for the same window from now. Big swings mean low confidence; the Run history tab shows the full sequence."
     >
-      {prev.error && <Notice tone="error">{prev.error.message}</Notice>}
+      {prev.error && <RequestError what="Previous-run" error={prev.error} />}
       <div className="overflow-x-auto">
         <table className="data">
           <thead>

@@ -1,5 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { SNAPSHOT_INTERVAL_H, SNAPSHOT_MAX_AGE_S, cachedJson, clearCache, parseManifest, snapshotIsFresh, type SnapshotEntry } from './cache';
+import {
+  NOT_IN_SNAPSHOT, NotInSnapshotError, SNAPSHOT_INTERVAL_H, SNAPSHOT_MAX_AGE_S, cachedJson, clearCache, isSnapshotOnly, manifestGeneratedAt,
+  parseManifest, snapshotInfo, snapshotIsFresh, snapshotUse, type SnapshotEntry,
+} from './cache';
 
 const NOW = Date.parse('2026-11-19T22:30:00Z');
 const NOW_S = NOW / 1000;
@@ -41,12 +44,14 @@ const manifestLoads = () => calls.filter((c) => c.url.endsWith('manifest.json'))
 beforeEach(async () => {
   vi.useFakeTimers();
   vi.setSystemTime(NOW);
+  vi.stubEnv('VITE_SNAPSHOT_ONLY', ''); // production behaviour unless a test opts in
   await clearCache();
   calls = [];
 });
 afterEach(() => {
   vi.useRealTimers();
   vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
 });
 
 describe('snapshotIsFresh', () => {
@@ -55,6 +60,30 @@ describe('snapshotIsFresh', () => {
     expect(snapshotIsFresh({ file: FILE_A, fetchedAt: NOW_S - SNAPSHOT_INTERVAL_H * 3600 }, NOW_S)).toBe(true);
     expect(snapshotIsFresh({ file: FILE_A, fetchedAt: NOW_S - SNAPSHOT_MAX_AGE_S + 1 }, NOW_S)).toBe(true);
     expect(snapshotIsFresh({ file: FILE_A, fetchedAt: NOW_S - SNAPSHOT_MAX_AGE_S }, NOW_S)).toBe(false);
+  });
+});
+
+describe('snapshotUse', () => {
+  const fresh = { file: FILE_A, fetchedAt: NOW_S - 600 };
+  const stale = { file: FILE_A, fetchedAt: NOW_S - SNAPSHOT_MAX_AGE_S };
+  const weekOld = { file: FILE_A, fetchedAt: NOW_S - 7 * 86400 };
+  it('normal builds: fresh copies from the snapshot, everything else live', () => {
+    expect(snapshotUse(fresh, NOW_S, false)).toBe('snapshot');
+    expect(snapshotUse(stale, NOW_S, false)).toBe('live');
+    expect(snapshotUse(undefined, NOW_S, false)).toBe('live');
+  });
+  it('snapshot-only builds: any copy regardless of age, never live', () => {
+    expect(snapshotUse(fresh, NOW_S, true)).toBe('snapshot');
+    expect(snapshotUse(stale, NOW_S, true)).toBe('snapshot');
+    expect(snapshotUse(weekOld, NOW_S, true)).toBe('snapshot');
+    expect(snapshotUse(undefined, NOW_S, true)).toBe('unavailable');
+  });
+  it('is off unless VITE_SNAPSHOT_ONLY is exactly "1"', () => {
+    expect(isSnapshotOnly()).toBe(false);
+    vi.stubEnv('VITE_SNAPSHOT_ONLY', 'true');
+    expect(isSnapshotOnly()).toBe(false);
+    vi.stubEnv('VITE_SNAPSHOT_ONLY', '1');
+    expect(isSnapshotOnly()).toBe(true);
   });
 });
 
@@ -67,6 +96,11 @@ describe('parseManifest', () => {
       'https://api.open-meteo.com/v1/forecast?x': { file: FILE_B, fetchedAt: Number.NaN },
     }));
     expect([...m!.keys()]).toEqual([A]);
+  });
+  it('reads generatedAt only when it is a plausible unix time', () => {
+    expect(manifestGeneratedAt(manifest({}))).toBe(NOW_S - 600);
+    expect(manifestGeneratedAt({ version: 1, generatedAt: 'yesterday', entries: {} })).toBeNull();
+    expect(manifestGeneratedAt(null)).toBeNull();
   });
   it('rejects other versions and non-objects', () => {
     expect(parseManifest({ version: 2, entries: {} })).toBeNull();
@@ -130,5 +164,44 @@ describe('cachedJson with a forecast snapshot', () => {
     const p = cachedJson(A, TTL).catch((e: Error) => e);
     await vi.advanceTimersByTimeAsync(60_000);
     expect(String(await p)).toContain('429');
+  });
+});
+
+describe('cachedJson in a snapshot-only build', () => {
+  beforeEach(() => {
+    vi.stubEnv('VITE_SNAPSHOT_ONLY', '1');
+  });
+
+  it('serves a snapshot copy of any age without calling Open-Meteo', async () => {
+    serve({ manifest: manifest({ [A]: { file: FILE_A, fetchedAt: NOW_S - 3 * 86400 } }), files: { [FILE_A]: { snap: 'old' } } });
+    expect(await cachedJson(A, TTL)).toEqual({ snap: 'old' });
+    expect(live()).toHaveLength(0);
+    expect(await snapshotInfo()).toEqual({ generatedAt: NOW_S - 600, entries: 1 });
+  });
+
+  it('rejects requests the snapshot lacks with NotInSnapshotError, still without calling Open-Meteo', async () => {
+    serve({ manifest: manifest({ [B]: { file: FILE_B, fetchedAt: NOW_S } }), files: { [FILE_B]: { snap: 'b' } } });
+    const err = await cachedJson(A, TTL).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(NotInSnapshotError);
+    expect((err as Error).message).toBe(NOT_IN_SNAPSHOT);
+    // No manifest at all, or an entry whose file is missing: the same.
+    await clearCache();
+    serve({});
+    await expect(cachedJson(A, TTL)).rejects.toBeInstanceOf(NotInSnapshotError);
+    await clearCache();
+    serve({ manifest: manifest({ [A]: { file: FILE_A, fetchedAt: NOW_S } }), files: {} });
+    await expect(cachedJson(A, TTL)).rejects.toBeInstanceOf(NotInSnapshotError);
+    expect(live()).toHaveLength(0);
+  });
+
+  it('keeps an older cached copy rather than failing', async () => {
+    serve({ manifest: manifest({ [A]: { file: FILE_A, fetchedAt: NOW_S - 600 } }), files: { [FILE_A]: { snap: 'a' } } });
+    expect(await cachedJson(A, TTL)).toEqual({ snap: 'a' });
+    // A day later the copy is past its TTL and the re-read manifest no longer lists it.
+    vi.setSystemTime(NOW + 86400_000);
+    serve({ manifest: manifest({}) });
+    expect(await cachedJson(A, TTL)).toEqual({ snap: 'a' });
+    expect(manifestLoads()).toHaveLength(2);
+    expect(live()).toHaveLength(0);
   });
 });

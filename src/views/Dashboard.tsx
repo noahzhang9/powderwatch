@@ -1,10 +1,11 @@
 import { useMemo, useState } from 'react';
 import { RESORTS, resortById, type Resort } from '../config/resorts';
 import { stationsFor } from '../config/stations';
-import { Notice } from '../components/ui';
+import { RequestError } from '../components/ui';
 import { useBandForecast, type BandForecast } from '../hooks/data';
 import { useAsync } from '../hooks/useAsync';
 import { href } from '../hooks/useRoute';
+import { NOT_IN_SNAPSHOT, isNotInSnapshot } from '../lib/cache';
 import { buildClimatology, percentileRank, seasonIndex } from '../lib/climatology';
 import { lastValidTime, windowSum } from '../lib/forecast';
 import { latest, loadStation } from '../lib/obs';
@@ -150,9 +151,7 @@ function ResortCard({ resort }: { resort: Resort }) {
       <div className="mt-4" aria-live="polite">
         <div className="text-[11px] uppercase tracking-wide text-ink-3">Forecast snowfall, mid-mountain ({fmt.elev(midBand(resort).elevation)})</div>
         {fc.error ? (
-          <Notice tone="error">
-            {fc.error.message} <button type="button" className="btn ml-2" onClick={fc.retry}>Retry</button>
-          </Notice>
+          <RequestError what="Forecast" error={fc.error} retry={fc.retry} />
         ) : !data ? (
           <div className="text-sm text-ink-3 py-3">Loading models…</div>
         ) : (
@@ -270,7 +269,7 @@ function WhereWhenRow({ resort, nDays, fmt, narrow }: { resort: Resort; nDays: n
         <a href={href('resort', resort.id)} className="hover:underline">{resort.short}</a>
       </th>
       {!data ? (
-        <td colSpan={nDays} className="text-ink-3">{fc.error ? <>Failed · <button type="button" className="underline" onClick={fc.retry}>retry</button></> : 'Loading…'}</td>
+        <td colSpan={nDays} className="text-ink-3">{fc.error ? isNotInSnapshot(fc.error) ? NOT_IN_SNAPSHOT : <>Failed · <button type="button" className="underline" onClick={fc.retry}>retry</button></> : 'Loading…'}</td>
       ) : (
         days.map((d, i) => {
           const snow = d.snowCm ?? 0;

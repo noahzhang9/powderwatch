@@ -6,6 +6,7 @@ import { Chart, baseOption, tipHeader, tipRow, type EChartsCoreOption } from '..
 import { Loading, ModelChip, Notice, Section, Seg } from '../components/ui';
 import { useBandForecast, useRunMeta } from '../hooks/data';
 import { useAsync } from '../hooks/useAsync';
+import { NOT_IN_SNAPSHOT, isNotInSnapshot } from '../lib/cache';
 import { deriveModel, lastValidTime, windowSum, type DerivedHourly } from '../lib/forecast';
 import { fetchSingleRun } from '../lib/openmeteo';
 import { alpha, slotColor, type ChartPalette } from '../lib/palette';
@@ -60,6 +61,7 @@ export function HistoryView({ resort }: { resort: Resort }) {
   const to = localMidnightUnix(addDays(start, len), resort.tz);
 
   const runs = useAsync(async () => {
+    let notInSnapshot = 0;
     const now = nowUnix();
     const latest12 = Math.floor((now - 4 * 3600) / 43200) * 43200; // runs are published ~4–8 h after init
     const tasks: Promise<RunResult | null>[] = [];
@@ -84,12 +86,17 @@ export function HistoryView({ resort }: { resort: Resort }) {
                 fzlMax: fz.length ? Math.max(...fz) : null,
               };
             })
-            .catch(() => null),
+            .catch((err) => {
+              if (isNotInSnapshot(err)) notInSnapshot++;
+              return null;
+            }),
         );
       }
     }
-    return (await Promise.all(tasks)).filter((r): r is RunResult => r != null).sort((a, b) => a.run - b.run);
+    const results = (await Promise.all(tasks)).filter((r): r is RunResult => r != null).sort((a, b) => a.run - b.run);
+    return { results, notInSnapshot, requested: tasks.length };
   }, [selected.join(','), band.key, from, to, meta.data != null]);
+  const runResults = runs.data?.results;
 
   const toggle = (id: string) => setSelected((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]));
   const [focusPick, setFocus] = useState<string | null>(null);
@@ -116,18 +123,21 @@ export function HistoryView({ resort }: { resort: Resort }) {
         subtitle={`Snowfall forecast for this ${len}-day window at ${bandInText(band)} (${fmt.elev(band.elevation)}), by model run (00Z and 12Z runs, last 7 days). Each point is one run; read left to right to see a storm appear, vanish or return. Past runs come from Open-Meteo's single-run archive, processed with the same snow physics as live forecasts.`}
       >
         {runs.error && <Notice tone="error">{runs.error.message}</Notice>}
-        {!runs.data ? (
+        {runs.data?.notInSnapshot ? (
+          <Notice>{NOT_IN_SNAPSHOT}: {runs.data.notInSnapshot} of {runs.data.requested} past runs (run history is not part of the snapshot).</Notice>
+        ) : null}
+        {!runResults ? (
           <Loading what="past model runs" />
-        ) : runs.data.length === 0 ? (
-          <Notice>No archived runs cover this window yet. Pick a window within the next ~10 days.</Notice>
+        ) : runResults.length === 0 ? (
+          runs.data?.notInSnapshot ? null : <Notice>No archived runs cover this window yet. Pick a window within the next ~10 days.</Notice>
         ) : (
           <>
-            <TrendChart runs={runs.data} fmt={fmt} />
-            <Summary runs={runs.data} fmt={fmt} />
+            <TrendChart runs={runResults} fmt={fmt} />
+            <Summary runs={runResults} fmt={fmt} />
           </>
         )}
       </Section>
-      {runs.data && focus && runs.data.some((r) => r.modelId === focus) && (
+      {runResults && focus && runResults.some((r) => r.modelId === focus) && (
         <Section
           title={`${MODELS[focus].label}: storm evolution run by run`}
           subtitle="Cumulative snowfall through the window as forecast by each run. Older runs fade; the latest two are labelled."
@@ -140,12 +150,12 @@ export function HistoryView({ resort }: { resort: Resort }) {
             </label>
           }
         >
-          <EvolutionChart runs={runs.data.filter((r) => r.modelId === focus)} from={from} to={to} tz={resort.tz} fmt={fmt} />
+          <EvolutionChart runs={runResults.filter((r) => r.modelId === focus)} from={from} to={to} tz={resort.tz} fmt={fmt} />
         </Section>
       )}
-      {runs.data && runs.data.length > 0 && (
+      {runResults && runResults.length > 0 && (
         <Section title="Run table">
-          <RunTable runs={runs.data} fmt={fmt} />
+          <RunTable runs={runResults} fmt={fmt} />
         </Section>
       )}
     </div>

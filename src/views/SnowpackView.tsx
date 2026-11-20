@@ -3,9 +3,10 @@ import { MODELS } from '../config/models';
 import type { Resort } from '../config/resorts';
 import { stationsFor, type StationDef } from '../config/stations';
 import { Chart, baseOption, tipHeader, tipRow, type EChartsCoreOption } from '../components/Chart';
-import { Loading, Notice, Section, Seg, Tile } from '../components/ui';
+import { Loading, Notice, RequestError, Section, Seg, Tile } from '../components/ui';
 import { loadScenarios, useEnsembles } from '../hooks/data';
 import { useAsync } from '../hooks/useAsync';
+import { isNotInSnapshot } from '../lib/cache';
 import { buildClimatology, currentSeason, percentileRank, SEASON_DAYS, seasonDate, seasonIndex, typicalDayFor, type Climatology } from '../lib/climatology';
 import { deriveModel } from '../lib/forecast';
 import { loadStation, valueOn, type StationFile, type Variable } from '../lib/obs';
@@ -141,13 +142,13 @@ export function SnowpackView({ resort }: { resort: Resort }) {
         file.loading ? <Loading what="station history" /> : <Notice tone="error">No data file for this station. Run <code>npm run obs</code>.</Notice>
       ) : (
         <>
-          <Stats clim={clim} last={last} today={today} projection={projection} fmt={fmt} v={v} stale={stale} />
+          <Stats clim={clim} last={last} today={today} projection={projection} fmt={fmt} v={v} stale={stale} ensError={ens.error} />
           {stale && (
             <Notice tone="warn">
               {last ? `Latest reading is from ${shortDate(last.date)}, too old to start a projection.` : 'No readings this season.'} Climatology is still shown.
             </Notice>
           )}
-          {ens.error && <Notice tone="error">Ensemble request failed: {ens.error.message}</Notice>}
+          {ens.error && <RequestError what="Ensemble" error={ens.error} retry={ens.retry} />}
           <Section
             title={`${v === 'depthCm' ? 'Snow depth' : 'Snow water equivalent'} at ${st.name}, ${season}–${String(season + 1).slice(2)} season`}
             subtitle={
@@ -181,8 +182,8 @@ function StationInfo({ st, resort, clim, file, fmt }: { st: StationDef; resort: 
   );
 }
 
-function Stats({ clim, last, today, projection, fmt, v, stale }: {
-  clim: Climatology; last: { date: string; value: number } | null; today: string; projection: Projection | null; fmt: Fmt; v: Variable; stale: boolean;
+function Stats({ clim, last, today, projection, fmt, v, stale, ensError }: {
+  clim: Climatology; last: { date: string; value: number } | null; today: string; projection: Projection | null; fmt: Fmt; v: Variable; stale: boolean; ensError?: Error;
 }) {
   const show = (x: number | null | undefined) => (v === 'depthCm' ? fmt.snow(x) : fmt.water(x));
   if (!last) return null;
@@ -211,7 +212,7 @@ function Stats({ clim, last, today, projection, fmt, v, stale }: {
       <Tile
         label="Projected in 7 days"
         value={projection && j7 >= 0 ? show(projection.p50[j7]) : '—'}
-        sub={projection && j7 >= 0 ? `spread ${show(projection.p10[j7])} – ${show(projection.p90[j7])}` : stale ? 'no recent reading' : 'loading ensembles…'}
+        sub={projection && j7 >= 0 ? `spread ${show(projection.p10[j7])} – ${show(projection.p90[j7])}` : stale ? 'no recent reading' : ensError ? (isNotInSnapshot(ensError) ? 'not in the local snapshot' : 'ensembles unavailable') : 'loading ensembles…'}
       />
     </div>
   );

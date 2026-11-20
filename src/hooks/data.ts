@@ -5,6 +5,7 @@
  */
 import { ENSEMBLES } from '../config/models';
 import type { Band, Resort } from '../config/resorts';
+import { NotInSnapshotError, isNotInSnapshot } from '../lib/cache';
 import { alignMembers, deriveMembers, type MemberSeries } from '../lib/ensemble';
 import { blend, deriveModel, toDaily, type BlendHourly, type DailyRow, type DerivedHourly } from '../lib/forecast';
 import {
@@ -70,6 +71,7 @@ export interface EnsembleSet {
   failed: string[];
 }
 
+/** All ensembles at a point. Rejects with NotInSnapshotError only when none is in a snapshot-only build's snapshot. */
 export async function loadEnsembles(pt: Point, tz: string, pastDays?: number, withFreezingLevel = true): Promise<EnsembleSet> {
   const results = await Promise.allSettled(ENSEMBLES.map((e) => fetchEnsemble(pt, e.id, tz, { pastDays, withFreezingLevel })));
   const sets: MemberSeries[][] = [];
@@ -78,6 +80,8 @@ export async function loadEnsembles(pt: Point, tz: string, pastDays?: number, wi
     if (r.status === 'fulfilled' && r.value.members.length) sets.push(deriveMembers(r.value));
     else failed.push(ENSEMBLES[i].label);
   });
+  const miss = results.find((r) => r.status === 'rejected' && isNotInSnapshot(r.reason));
+  if (!sets.length && miss) throw (miss as PromiseRejectedResult).reason;
   return { ...alignMembers(sets), failed };
 }
 
@@ -100,20 +104,26 @@ export function useRunMeta(modelIds: string[]) {
   return useAsync(() => loadRunMeta(modelIds), [modelIds.join(',')]);
 }
 
-/** The run 12 h before each model's latest run, at a band (run-to-run panel). */
+/**
+ * The run 12 h before each model's latest run, at a band (run-to-run panel). Rejects with
+ * NotInSnapshotError only when none of them is in a snapshot-only build's snapshot.
+ */
 export async function loadRunChange(
   resort: Resort, band: Band, ids: string[], meta: Record<string, RunMeta | null> | undefined,
 ): Promise<Record<string, DerivedHourly | null>> {
   const out: Record<string, DerivedHourly | null> = {};
+  const misses: NotInSnapshotError[] = [];
   await Promise.all(ids.map(async (id) => {
     const init = meta?.[id]?.initUnix;
     if (!init) return (out[id] = null);
     try {
       out[id] = deriveModel(await fetchSingleRun(pointOf(band), id, previousRun(init), resort.tz));
-    } catch {
+    } catch (err) {
+      if (isNotInSnapshot(err)) misses.push(err);
       out[id] = null;
     }
   }));
+  if (misses.length && Object.values(out).every((m) => m == null)) throw misses[0];
   return out;
 }
 

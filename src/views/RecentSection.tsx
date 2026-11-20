@@ -5,6 +5,7 @@ import { stationsFor, type StationDef } from '../config/stations';
 import { Chart, baseOption, tipHeader, tipRow, type EChartsCoreOption } from '../components/Chart';
 import { Loading, Notice, Section, Seg } from '../components/ui';
 import { loadRecentModels } from '../hooks/data';
+import { NOT_IN_SNAPSHOT, isNotInSnapshot } from '../lib/cache';
 import { useAsync } from '../hooks/useAsync';
 import { windowSum, type DerivedHourly } from '../lib/forecast';
 import { loadStation, type StationFile } from '../lib/obs';
@@ -30,17 +31,22 @@ export function RecentSection({ resort, band }: { resort: Resort; band: Band }) 
   const dates = useMemo(() => Array.from({ length: DAYS }, (_, i) => addDays(today, i - DAYS + 1)), [today]);
 
   const files = useAsync(() => Promise.all(stations.map((s) => loadStation(s.id))), [resort.id]);
-  const atStations = useAsync(
-    () => Promise.all(stations.map((s) => loadRecentModels(pointOf(s), resort).catch(() => null))),
-    [resort.id],
-  );
+  // Per-station failures leave that station's model bars out; snapshot-only builds say why.
+  const atStations = useAsync(async () => {
+    let notInSnapshot = false;
+    const models = await Promise.all(stations.map((s) => loadRecentModels(pointOf(s), resort).catch((err) => {
+      if (isNotInSnapshot(err)) notInSnapshot = true;
+      return null;
+    })));
+    return { models, notInSnapshot };
+  }, [resort.id]);
   const atBand = useAsync(() => loadRecentModels(pointOf(band), resort), [resort.id, band.key]);
 
   const rows = useMemo(() => {
     if (!files.data) return null;
     return stations.map((st, i) => {
       const f = files.data![i];
-      const mp = atStations.data?.[i] ?? null;
+      const mp = atStations.data?.models[i] ?? null;
       return {
         st,
         file: f,
@@ -83,6 +89,7 @@ export function RecentSection({ resort, band }: { resort: Resort; band: Band }) 
       }
     >
       {files.error && <Notice tone="error">{files.error.message}</Notice>}
+      {atStations.data?.notInSnapshot && <Notice>{NOT_IN_SNAPSHOT}: modelled snowfall at the stations.</Notice>}
       {!rows || !sel ? (
         <Loading what="recent observations" />
       ) : (

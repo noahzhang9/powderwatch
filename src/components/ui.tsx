@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
-import { netStatus, subscribeNet } from '../lib/cache';
+import { useAsync } from '../hooks/useAsync';
+import { NOT_IN_SNAPSHOT, SNAPSHOT_MAX_AGE_S, isNotInSnapshot, netStatus, snapshotInfo, subscribeNet } from '../lib/cache';
+import { ago, nowUnix } from '../lib/time';
 
 export function Seg<T extends string>({ value, options, onChange, label }: {
   value: T; options: { value: T; label: ReactNode }[]; onChange: (v: T) => void; label: string;
@@ -47,6 +49,41 @@ export function Notice({ tone = 'info', children }: { tone?: 'info' | 'warn' | '
     <div className="text-xs text-ink-2 rounded-lg px-3 py-2 mt-2 bg-surface-2" style={{ borderLeft: `3px solid ${border}` }} role={tone === 'error' ? 'alert' : undefined}>
       <span aria-hidden className="mr-1.5">{icon}</span>
       {children}
+    </div>
+  );
+}
+
+/**
+ * A failed request. In a snapshot-only build, a request the local snapshot doesn't hold is an
+ * inline note rather than a failure; anything else is an error with an optional Retry.
+ */
+export function RequestError({ what, error, retry }: { what: string; error: Error; retry?: () => void }) {
+  if (isNotInSnapshot(error)) return <Notice>{NOT_IN_SNAPSHOT}: {what.toLowerCase()} data.</Notice>;
+  return (
+    <Notice tone="error">
+      {what} request failed: {error.message}
+      {retry && <button type="button" className="btn ml-2" onClick={retry}>Retry</button>}
+    </Notice>
+  );
+}
+
+/** Snapshot-only builds: says so, and how old the snapshot is. */
+export function SnapshotOnlyBanner() {
+  const info = useAsync(snapshotInfo, []);
+  const t = info.data?.generatedAt ?? null;
+  const taken = t == null ? null : new Date(t * 1000).toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+  return (
+    <div className="bg-surface-2 border-b border-line text-xs text-ink-2" role="note" aria-label="Snapshot-only mode">
+      <div className="max-w-7xl mx-auto px-4 py-1.5">
+        <b className="text-ink">Snapshot-only preview</b>
+        {info.loading ? ' · reading the local snapshot…' : info.data ? (
+          <>
+            {' '}· forecasts from the local snapshot taken {t == null ? 'at an unknown time' : <>{ago(t)} ({taken})</>}, {info.data.entries} requests
+            {t != null && nowUnix() - t > SNAPSHOT_MAX_AGE_S ? ', older than the live site would use' : ''}
+          </>
+        ) : ' · no local snapshot found (.cache/fc/ is empty)'}
+        {' '}· no live Open-Meteo calls.
+      </div>
     </div>
   );
 }

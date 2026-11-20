@@ -12,13 +12,17 @@ npm test               # vitest: physics, stats, climatology, snowpack, time zon
 npm run typecheck
 npm run build          # tsc + vite build → dist/
 npm run preview        # serve dist/ on 127.0.0.1:4173
+npm run build:local    # snapshot-only build (VITE_SNAPSHOT_ONLY=1): copies .cache/fc/ into dist/data/fc/
+npm run preview:local  # build:local, then serve it on 127.0.0.1:4173. Makes no Open-Meteo calls
 npm run dev            # 127.0.0.1:5173 with hot reload
 npm run obs            # refresh station data → public/data/obs/*.json (incremental; FULL_REFRESH=1 for full history)
-npm run snapshot       # fetch the forecast snapshot → dist/data/fc/ (run after build; costs ~1,250 Open-Meteo weighted calls)
+npm run snapshot       # fetch the forecast snapshot → dist/data/fc/ and .cache/fc/ (costs ~1,250 Open-Meteo weighted calls)
 npx tsx scripts/backtest-snowpack.ts   # snowpack calibration against SNOTEL (~2 min, uses ERA5 via Open-Meteo)
 ```
 
 Run `npm test`, `npm run typecheck` and `npm run build` before every commit. For UI changes, check every touched view in a real browser, at desktop width and at 390 px, in light and dark mode. Watch for overlapping labels, clipped text and console errors.
+
+For browser checks, use `npm run preview:local`, not a fresh `npm run snapshot`. It serves the copy of the last snapshot kept in `.cache/fc/` at any age and never calls Open-Meteo. Requests the snapshot doesn't hold (Run history, base/summit ensembles, anything after the snapshot's local dates) show "Not in the local snapshot (snapshot-only mode)" inline, and a banner gives the snapshot's age.
 
 ## Layout
 
@@ -32,7 +36,7 @@ Run `npm test`, `npm run typecheck` and `npm run build` before every commit. For
 | `src/lib/climatology.ts`, `obs.ts`, `recent.ts` | Station history, percentiles, last-7-days alignment |
 | `src/lib/openmeteo.ts` | Pure URL builders + fetchers for every Open-Meteo request |
 | `src/lib/requests.ts` | Each view's request choices (points, model lists, `pastDays`, …), shared by the views and the snapshot plan |
-| `src/lib/cache.ts` | Fetch cache: memory → IndexedDB → snapshot manifest → live, with priority scheduling and 429 backoff |
+| `src/lib/cache.ts` | Fetch cache: memory → IndexedDB → snapshot manifest → live, with priority scheduling and 429 backoff. Snapshot-only builds never go live (`snapshotUse`) |
 | `src/hooks/data.ts` | `load*` functions and hooks that assemble requests into view data |
 | `src/views/` | Dashboard, Storm tracker (`StormView.tsx`, `storm/`), Run history, Snowpack, Methods (`About.tsx`) |
 | `scripts/` | `fetch-obs.ts` (station ingest), `snapshot-plan.ts` + `snapshot-forecasts.ts` (forecast snapshot), `backtest-snowpack.ts` |
@@ -66,6 +70,8 @@ If parity drifts, the cache silently stops working, and visits fall back to live
 - Validate anything read from localStorage.
 
 **Local servers bind to 127.0.0.1 only** (`vite.config.ts`, `package.json`). Never `0.0.0.0` or `--host` without an address.
+
+**Snapshot-only builds are local only.** `VITE_SNAPSHOT_ONLY=1` makes the client use snapshot copies of any age and never call Open-Meteo, drops the Open-Meteo hosts from `connect-src`, and turns on the `local-snapshot` build plugin that copies `.cache/fc/` into `dist/`. Never set it in the workflow; the production build must keep going live for anything missing or stale.
 
 **Lockfile.** `package-lock.json` must resolve from `https://registry.npmjs.org/`. If you install through a private npm mirror, rewrite the `resolved` URLs before committing (the integrity hashes are identical), and check that no private host appears in the diff.
 
