@@ -4,7 +4,7 @@
  * and a family-balanced multi-model blend.
  */
 import { MODELS, type ModelDef } from '../config/models';
-import { freezingLevel, snowLevel, snowLevelFromFreezingLevel, splitPrecip, type ProfileLevel } from './physics';
+import { freezingLevel, nonNegativePrecip, snowLevel, snowLevelFromFreezingLevel, splitPrecip, type ProfileLevel } from './physics';
 import { familyWeights, isNum, weightedMean, weightedQuantile, type Num, type Series } from './stats';
 import type { SurfaceHourly } from './openmeteo';
 import { localParts } from './time';
@@ -85,7 +85,7 @@ export function deriveModel(raw: SurfaceHourly, profiles?: Profiles): DerivedHou
   }
 
   return {
-    model, time: raw.time, tC: raw.tC, rh: raw.rh, precip: raw.precip, snowCm, rainMm,
+    model, time: raw.time, tC: raw.tC, rh: raw.rh, precip: nonNegativePrecip(raw.precip), snowCm, rainMm,
     omSnowCm: raw.omSnowCm, fzl, fzlSource, snowLevel: sl, gust: raw.gust,
   };
 }

@@ -6,7 +6,7 @@
  */
 import { ENSEMBLES, type EnsembleDef } from '../config/models';
 import type { EnsembleHourly } from './openmeteo';
-import { splitPrecip } from './physics';
+import { nonNegativePrecip, splitPrecip } from './physics';
 import { familyWeights, isNum, weightedQuantile, exceedance, type Series } from './stats';
 
 export interface MemberSeries {
@@ -26,7 +26,7 @@ export const FALLBACK_LAPSE = 0.0065;
 export function deriveMembers(ens: EnsembleHourly): MemberSeries[] {
   const def = ENSEMBLES.find((e) => e.id === ens.modelId)!;
   return ens.members.map((m, k) => ({
-    def, member: k, time: ens.time, precip: m.precip, tC: m.tC, rh: m.rh,
+    def, member: k, time: ens.time, precip: nonNegativePrecip(m.precip), tC: m.tC, rh: m.rh,
     // Some ensembles (ECMWF) publish no freezing level: estimate it from the member's own downscaled temperature.
     fzl: m.fzl.some(isNum) ? m.fzl : m.tC.map((t) => (t == null ? null : Math.max(0, ens.elevation + t / FALLBACK_LAPSE))),
     snowCm: m.precip.map((p, i) => {

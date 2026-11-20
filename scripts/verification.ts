@@ -25,6 +25,7 @@ import {
   type MemberSeries,
 } from '../src/lib/ensemble';
 import { nbmDaily } from '../src/lib/benchmarks';
+import { nonNegativePrecip } from '../src/lib/physics';
 import { blend, dailyCentres, deriveModel, toDaily, type DailyRow, type DerivedHourly } from '../src/lib/forecast';
 import type { StationFile } from '../src/lib/obs';
 import {
@@ -32,7 +33,7 @@ import {
   type Point, type Profiles, type RunMeta,
 } from '../src/lib/openmeteo';
 import { SCENARIO_MODELS, hasData, metaIdOf, midBand, pointOf } from '../src/lib/requests';
-import { round, type Series } from '../src/lib/stats';
+import { round } from '../src/lib/stats';
 import { addDays, localDate, localMidnightUnix } from '../src/lib/time';
 import type { WpcCategory, WpcFile, WpcPeriod } from '../src/lib/wpc';
 import { midSurfaceUrl, servedDates, snowpackRequests } from './snapshot-plan';
@@ -191,12 +192,6 @@ const r0 = (v: number | null | undefined) => round(v, 0);
 
 const midnight = (date: string, tz: string) => localMidnightUnix(date, tz);
 
-/**
- * Hourly precipitation below zero (an artefact of some models' de-accumulated output) counts as none,
- * as it does in the physics' rain/snow split, so a day's precipitation is never negative.
- */
-const nonNegative = (s: Series): Series => s.map((v) => (v == null ? null : Math.max(0, v)));
-const daily = (m: Parameters<typeof toDaily>[0], tz: string) => toDaily({ ...m, precip: nonNegative(m.precip) }, tz);
 const hoursIn = (date: string, tz: string) => (midnight(addDays(date, 1), tz) - midnight(date, tz)) / 3600;
 
 /** Per-day fields from `toDaily` rows; a day counts only when every hour of it has data. */
@@ -229,13 +224,12 @@ function ensembleFields(time: number[], members: MemberSeries[], ids: string[], 
     win: { days: RECORD_WINDOWS_D, snow: quant(), pge: [] },
   };
   const chances = (ws: ReturnType<typeof windowTotals>) => RECORD_THRESHOLDS_CM.map((t) => r3(probabilityAtLeast(ws, t)));
-  const wet = members.map((m) => ({ ...m, precip: nonNegative(m.precip) }));
   for (const d of days) {
     const from = midnight(d, tz);
     const to = midnight(addDays(d, 1), tz);
     const ws = windowTotals(time, members, from, to, 'snowCm');
     push(out.snow, windowQuantiles(ws, [0.1, 0.5, 0.9]));
-    push(out.precip, windowQuantiles(windowTotals(time, wet, from, to, 'precip'), [0.1, 0.5, 0.9]));
+    push(out.precip, windowQuantiles(windowTotals(time, members, from, to, 'precip'), [0.1, 0.5, 0.9]));
     out.pge.push(chances(ws));
     out.centres.push(ws.families.length);
   }
@@ -263,7 +257,7 @@ function loadMembers(json: RecordInput['json'], urls: string[], pt: Point) {
 }
 
 function modelFields(models: DerivedHourly[], days: string[], tz: string): Record<string, Fields> {
-  return Object.fromEntries(models.map((m) => [m.model.id, dailyFields(daily(m, tz), days, tz)]));
+  return Object.fromEntries(models.map((m) => [m.model.id, dailyFields(toDaily(m, tz), days, tz)]));
 }
 
 /** Builds the record for the cycle this snapshot carries; null when the run metadata can't name one. */
@@ -296,10 +290,10 @@ export function buildVerificationRecord(input: RecordInput): VerificationRecord 
       const nbmHourly = nbm ? parseNbm(nbm) : undefined;
       points.push({
         ...base, kind: 'mid', id: 'mid', lat: mid.lat, lon: mid.lon, elev: mid.elevation,
-        blend: b ? { ...dailyFields(daily(b, r.tz), days, r.tz), centres: days.map((d) => centres.get(d) ?? 0) } : undefined,
+        blend: b ? { ...dailyFields(toDaily(b, r.tz), days, r.tz), centres: days.map((d) => centres.get(d) ?? 0) } : undefined,
         models: modelFields(models, days, r.tz),
         ens: ensembleFields(ens.time, ens.members, ens.ids, days, r.tz),
-        ...(nbmHourly ? { nbm: dailyFields(nbmDaily({ ...nbmHourly, precip: nonNegative(nbmHourly.precip) }, r.tz), days, r.tz, { rain: false }) } : {}),
+        ...(nbmHourly ? { nbm: dailyFields(nbmDaily({ ...nbmHourly, precip: nonNegativePrecip(nbmHourly.precip) }, r.tz), days, r.tz, { rain: false }) } : {}),
         ...(r.officialGuidance && input.wpc?.points[r.id] ? { wpc: { days: input.wpc.days, cat: input.wpc.points[r.id].cat } } : {}),
       });
     }
@@ -373,7 +367,7 @@ export function buildBackfillRecords(input: {
     const models: Record<string, Record<string, LeadFields>> = Object.fromEntries(input.dates.map((d) => [d, {}]));
     for (const lead of PREVIOUS_RUN_LEADS) {
       for (const m of parsePreviousRuns(json, SCENARIO_MODELS, lead).filter(hasData).map((s) => deriveModel(s))) {
-        const rows = daily(m, r.tz);
+        const rows = toDaily(m, r.tz);
         input.dates.forEach((d) => {
           const f = dailyFields(rows, [d], r.tz, { levels: false });
           const at = (models[d][m.model.id] ??= {

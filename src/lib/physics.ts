@@ -56,6 +56,12 @@ export interface PhaseSplit {
 }
 
 /** Split one hour of liquid-equivalent precipitation into snow and rain. */
+/**
+ * Hourly precipitation as the physics counts it: below zero (an artefact of some models'
+ * de-accumulated output) is none, as in splitPrecip, so no total, blend or day is ever lowered by it.
+ */
+export const nonNegativePrecip = (s: readonly (number | null)[]): (number | null)[] => s.map((v) => (v == null ? null : Math.max(0, v)));
+
 export function splitPrecip(precipMm: number, tC: number, rhPct: number): PhaseSplit {
   if (!(precipMm > 0)) return { snowWaterMm: 0, rainMm: 0, snowCm: 0 };
   const frac = snowFraction(wetBulb(tC, rhPct));
