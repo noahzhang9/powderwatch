@@ -3,7 +3,7 @@
 
 **Project Proposal — Revision 3, 20 November 2026**
 
-**Status (as of 2026-11-20):** Phases 1–3 are implemented for five resorts. Phase 4 (verification) has its forecast archive: two records a day on the `data/verification` branch, and a one-time backfill from 2026-10-01; the verification analysis is still to build. Phase 5 (alerts and personalization) is partly done: trips exist, alerts do not.
+**Status (as of 2026-11-20):** Phases 1–3 are implemented for five resorts. At the three US resorts, the Snowpack tab also offers NOAA SNODAS modelled snowpack at each band; it is ingested daily from 2026-11-15, and its history arrives through a manually run backfill workflow. Phase 4 (verification) has its forecast archive: two records a day on the `data/verification` branch, and a one-time backfill from 2026-10-01; the verification analysis is still to build. Phase 5 (alerts and personalization) is partly done: trips exist, alerts do not.
 
 ---
 
@@ -16,7 +16,8 @@ It is not a single snowfall number. It shows:
 - how models disagree,
 - how their forecasts change from run to run,
 - what precipitation becomes at each elevation,
-- what the forecast means for snowpack measured against that station's own history.
+- what the forecast means for snowpack measured against that station's own history,
+- at the US resorts, NOAA's modelled snowpack (SNODAS) at the resort's own elevation bands, as an opt-in alternative to stations that sit below the ski terrain.
 
 **Resorts**
 
@@ -50,6 +51,7 @@ These decisions shape everything below.
 | Model ids | **Pure single-model ids** (`gfs_global`, `gem_global`, `icon_global`, …) | The `*_seamless` ids splice regional models in. For example, `gfs_seamless` is HRRR for the first 48 h in North America. That would double-count models in a blend and mislabel lines. |
 | Run history | **Open-Meteo Single Runs API**, fetched on demand | Past runs are retrievable for about 5 months: runs from 2026-07-01 are available, runs from 2026-04-01 are not. Storm-evolution views therefore need no archive. |
 | Observations | **Scheduled server-side fetch → static JSON** | BC ASWS, SLF and NWAC send no CORS headers. SNOTEL's API fails about half of requests at random. SLF's terms forbid per-end-user calls. |
+| Modelled snowpack | **NOAA NOHRSC SNODAS at every band of the US resorts, as opt-in pseudo-stations** on the Snowpack tab, in the station file format; the scheduled job adds each day, and a manual workflow on GitHub's runners fills the history | The stations often sit well below the ski terrain (Stevens Pass SNOTEL is about 580 m below the summit). SNODAS models every 1 km cell of the lower 48 daily, so it gives an estimate at the bands themselves. It is model output, so it is labelled modelled everywhere, is never a default and appears only on the Snowpack tab. Each day is one file of up to 35 MB from NSIDC (no API, no CORS), so the browser reads a processed same-origin file and the Content-Security-Policy is unchanged; the history is 60–90 GB of downloads. |
 | Snapshot cadence | **Every 4 hours** (six runs a day), with a per-run budget that always fits the first screens | Five resorts' first screens cost about 1,170 weighted calls a run (§8); eight runs a day would need about 9,400 of the free tier's 10,000 before any push or manual run. The global models update every 6 to 12 hours, so a 4-hourly snapshot still picks up every cycle. |
 | Snoqualmie and Alpental | **One resort, with Alpental as its upper band** | The Summit's four base areas lie within 4 km of each other on one ticket, in one NWAC zone (Snoqualmie Pass) and near the same SNOTEL stations, and the 9–25 km global models cannot tell Alpental from Summit Central. What differs is elevation: Alpental runs from 3,140 to 5,420 ft, Summit West/Central/East from about 2,600 to 3,865 ft. Bands carry their own coordinates and elevations, so the summit band sits at Alpental's Top Station. A separate Alpental resort would repeat almost identical first screens for about 230 more weighted calls a run. |
 | Hosting | **Static site on GitHub Pages**, built and deployed every 4 hours by a **scheduled GitHub Action** that also writes the forecast snapshot into the site (`data/fc/`, not committed) | One account, no secrets. The snapshot holds raw API responses; ensemble processing (212 members × 384 h) stays in the browser, so no server compute is needed. Netlify's free plan (300 credits/month, 15 per production deploy) cannot absorb 4-hourly deploys; Cloudflare Pages (500 deploys/month, free Access login) is the alternative if the site must be private. |
@@ -150,6 +152,13 @@ The chart runs October to June for one station. It shows:
 
 It can display either **snow depth or SWE**, wherever the station measures SWE.
 
+**Modelled points (US resorts).** After the stations, the station picker lists NOAA SNODAS at each of the resort's bands ("Mid-mountain · 5,710 ft · modelled (SNODAS)"); the choice is kept in the URL (`station=`). The default is always a measurement station. With a SNODAS point:
+
+- the headline tile reads "Modelled <date>", the chart title "Modelled snow depth at <resort> <band> (SNODAS)", and the legend and tooltip "This season (modelled)";
+- the station line says in one sentence what SNODAS is, gives the 06:00 UTC valid time, and warns that a 1 km cell's terrain is not the band's elevation;
+- the climatology compares the point only with its own SNODAS history, under the same rules as a station;
+- until the history is backfilled, the chart shows this season alone with a "History not yet backfilled" note, and the tiles that need normals show "no SNODAS history yet".
+
 Headline numbers:
 
 - current reading and date;
@@ -169,6 +178,7 @@ Climatology rules:
 
 - The projection starts from the station's latest reading. It is attempted only if that reading is no older than 5 days.
 - It uses the station's measured SWE when available. Otherwise it uses a seasonal bulk density.
+- From a SNODAS point it starts from the modelled depth and SWE, with forcing at the band's coordinates and elevation. Those requests are not in the snapshot: they are fetched live when a visitor picks the point.
 - **Forcing is taken at the station's coordinates and elevation**, not the resort's. The projection therefore stays comparable with that station's history.
 - The model runs once for every ensemble member (212 runs). The family-weighted 10th/50th/90th percentiles are shown.
 - ECMWF, GFS, GEM, ICON and AIFS can be overlaid as labelled single-model scenarios.
@@ -335,12 +345,41 @@ These remain links.
   - MeteoSwiss: CC BY 4.0, credited "Source: MeteoSwiss".
   - Open-Meteo: CC BY 4.0, non-commercial use, fewer than 10,000 calls a day.
   - NOAA NBM and WPC: US federal government data, credited "NOAA National Blend of Models" and "NOAA/NWS Weather Prediction Center".
+  - SNODAS: US government data distributed by NSIDC, which requires its citation as a condition of use (in `public/data/NOTICE.md`, the footer and the Methods page): National Operational Hydrologic Remote Sensing Center. (2004). Snow Data Assimilation System (SNODAS) Data Products at NSIDC. (G02158, Version 1). [Data Set]. Boulder, Colorado USA. National Snow and Ice Data Center. https://doi.org/10.7265/N5TB14TC.
 - **What counts as "daily"** differs by source, and each station records its own:
+  - SNODAS: the model state at 06:00 UTC (10 pm PST the evening before).
   - SNOTEL: midnight PST.
   - ECCC: the morning observation.
   - BC: median of the hourly readings for each PST day.
   - SLF: daily value.
   - MeteoSwiss: the 06 UTC reading.
+
+### Modelled snowpack (SNODAS)
+
+NOAA NOHRSC's Snow Data Assimilation System runs a physically based snowpack model on a 30-arc-second grid, driven by downscaled weather-model forcing (RAP and HRRR since 2018) and updated toward satellite, airborne and ground snow observations once a day. NSIDC archives it as data set G02158. Sources: NSIDC's user guide for G02158 v1 and the files' own headers.
+
+| Property | Value |
+|---|---|
+| Files | `noaadata.apps.nsidc.org/NOAA/G02158/masked/YYYY/MM_Mon/SNODAS_YYYYMMDD.tar`, public HTTPS without login; posted about 14:00 UTC the same day; 1.2–35 MB. Each holds eight gzipped grids and their gzipped text headers. |
+| Products used | 1036 snow depth and 1034 SWE (`us_ssmv11036tS__T0001TTNATS<date>05HP001`): the state at 06:00 UTC. |
+| Grid | Masked lower 48: 6,935 columns × 3,351 rows, 0.008333° (30″) spacing, WGS 84, read across rows from the north-west corner. The header's `Minimum x-axis` / `Maximum y-axis coordinate` are the outer edges of the west column and north row; the `Benchmark` coordinates are the north-west cell's centre. |
+| Grid change | On 2013-10-01 the grid moved 5% of a cell east and north: before, edges at −124.73375° and 52.874583°; from then, −124.733333° and 52.875°. Each file's own header places the cells, and all nine resort points (and the three SNOTEL cells below) fall in the same cell in both eras. |
+| Values | 16-bit signed big-endian integers; `Data units: Meters / 1000`, slope 1, intercept 0, so integers are millimetres. −9999 is no data; 32,767 is a clipped value (SWE ≥ 32.767 m, an artefact at some high-elevation cells). Both are dropped, as are depths over 1,500 cm and SWE over 5,000 mm. |
+| Record | Masked files from 2003-09-30; NSIDC discourages data before October 2004, when routine assimilation began, so the backfill starts with the 2004–05 season. NSIDC lists 18 masked days with no file (a 404, skipped) and two whose SWE grid is missing or all zeros (2003-10-30, 2005-07-31, both outside the backfilled seasons; a tar lacking one product still gives the other). Header files were renamed from `.hdr` to `.txt` in 2019; the reader accepts both. |
+| Known artefacts | From 2014-10-09 to 2019-10-10, 126,950 cells along coasts and lakes hold erroneous zeros (before that, no data). The nine resort cells hold valid values in 2004 and 2012, so they are not among them. |
+
+**Reading it.** `scripts/snodas.ts` streams a day's tar, keeps only the depth and SWE members (1–8 MB gzipped each), parses each header and reads the wanted cells while decompressing, so no grid is ever written to disk or held whole; the download stops once both products are in. A point's cell is `floor((lon − minX) / dx)`, `floor((maxY − lat) / dy)`, with cells half-open (a point on a boundary belongs to the cell east or south of it).
+
+**Spot comparison with SNOTEL** at the stations' own cells (SNODAS 06 UTC minus the station's midnight reading on the same date). SNODAS assimilates ground observations, so agreement at these cells is not an independent test:
+
+| Date | Morse Lake 642 depth / SWE | Olallie Meadows 672 depth / SWE | Stevens Pass 791 depth / SWE |
+|---|---|---|---|
+| 2012-02-15 | +2 cm / −3 mm | +33 cm / −9 mm | −5 cm / +1 mm |
+| 2017-02-15 | +30 cm / −10 mm | +53 cm / −96 mm | +16 cm / +5 mm |
+| 2025-02-15 | −44 cm / −39 mm | 0 cm / −19 mm | −13 cm / −21 mm |
+| 2026-11-15 to 18 | −7 to −18 cm / −64 to −67 mm | 0 to −5 cm / −3 to +1 mm | 0 to +0.2 cm / 0 mm |
+
+In mid-winter SWE agrees within 0–10% at all three stations, and depth less closely (−44 to +53 cm). In the season's first weeks SNODAS holds far less water than Morse Lake reports (5–10 mm against 71–76 mm). On 2004-02-29, before routine assimilation, it differs by −30 to +24 cm and −57 to +79 mm, and it gives 489 cm at Crystal's mid band, against 221 cm at the base and 274 cm at the summit.
 
 ---
 
@@ -359,14 +398,23 @@ Browser (React + TypeScript + ECharts, static on GitHub Pages)
   ├── ensemble.ts    plumes, exceedance probabilities
   ├── snowpack.ts    layered snowpack model
   ├── climatology.ts percentiles by season day
-  ├── /data/obs/*.json  station series (static, committed by the scheduled job)
+  ├── /data/obs/*.json  station series and SNODAS pseudo-station series (static, committed by the workflows)
   └── /data/fc/*.json   forecast snapshot + manifest.json (static, deployed by the scheduled job, never committed)
 
 GitHub Action (every 4 h at :20 UTC, full station history in the Sunday 00:20 run, and on push)
-  refresh: npm run obs → commit: public/data if changed
+  refresh: npm run obs (+ new SNODAS days) → commit (write, no npm): validate_obs.py → public/data if changed
   → build (read-only): test → vite build → npm run snapshot (dist/data/fc/, + verification record) → deploy-pages
                                                                         └→ archive (write, no npm): data/verification branch
+
+GitHub Action backfill-snodas (manual only)
+  plan (no token): seasons from the inputs → extract (read-only, one job per season, two at a time): SNODAS cells
+  → commit (write, no npm): validate_obs.py --backfill merges into public/data/obs → one commit to main
 ```
+
+- **SNODAS ingest:**
+  - **Daily:** `npm run obs` looks at the last 10 days and fetches each day that no SNODAS point has yet. One file serves all nine points, so a run downloads at most a file or two, and a day not yet posted is one 404. The weekly full refresh doesn't apply to SNODAS.
+  - **History:** `backfill-snodas.yml`, run by hand. `plan` checks `first_season` and `last_season` (passed through `env`) and lists the seasons. `extract` runs `npm run backfill:snodas -- --season <year> --skip-existing --deadline-min 130` for each season, at most two at a time, one request at a time each, with a User-Agent carrying `PW_CONTACT`, retries with backoff (2 s doubling to 60 s) and a 404 counted as missing. It skips days `main` already has and uploads a `snodas-<season>` artifact of station files, also after a failure or at its deadline. `commit` (`contents: write`, no npm code) runs `validate_obs.py --backfill` on the artifacts and pushes one commit to `main`, starting again from the new `main` if a scheduled commit landed in between.
+  - **Validation:** `scripts/validate_obs.py` is the validator of both commit jobs: file names that already exist on `main`, the station-file keys, ISO dates, equal-length series, finite values within bounds, 2 MB per file, re-serialised. SNODAS files are merged day by day with `main`'s copy (incoming values win, every other day is kept), so a scheduled refresh that read the files before a backfill commit can't drop the history, and merging a season twice changes nothing.
 
 - **Forecast snapshot** (`scripts/snapshot-forecasts.ts`, `npm run snapshot`):
   - Fetches the Open-Meteo responses the first screens request and writes them unmodified to `dist/data/fc/`, with `manifest.json` mapping each request URL to `{file, fetchedAt}`. File names hash the URL and the content, so each file is immutable; the manifest is fetched with `no-cache`.
@@ -394,7 +442,7 @@ GitHub Action (every 4 h at :20 UTC, full station history in the Sunday 00:20 ru
   - Every chart has a crosshair tooltip and a table or text alternative.
   - Never two y-axes on one chart.
 - **No D1, Workers or R2.** The verification archive is JSON files on the repository's `data/verification` branch, so `main` does not grow.
-- **Tests:** Vitest covers the physics, statistics, climatology, snowpack and time-zone logic, snapshot URL parity and the cache's snapshot freshness and fallback. Run `npm test`.
+- **Tests:** Vitest covers the physics, statistics, climatology, snowpack and time-zone logic, snapshot URL parity and the cache's snapshot freshness and fallback, the SNODAS reader (cell indexing and its edge cases, scaling, header checks, and the tar and gzip path on a synthetic grid) and `validate_obs.py`, including its SNODAS merge. Run `npm test`.
 
 ---
 
@@ -403,7 +451,7 @@ GitHub Action (every 4 h at :20 UTC, full station history in the Sunday 00:20 ru
 | Phase | Scope | Status |
 |---|---|---|
 | 1 — Forecast dashboard | Multi-model snowfall, bands, freezing/snow level, temperatures, ensembles, run timing | **Done** |
-| 2 — Snowpack tracker | Station history, percentiles, previous season, depth/SWE | **Done** |
+| 2 — Snowpack tracker | Station history, percentiles, previous season, depth/SWE; SNODAS modelled points at the US resorts' bands | **Done** (SNODAS history pending its backfill run) |
 | 3 — Snowpack projection | Layered model, ensemble spread, scenarios, backtest | **Done** (Cascades calibration) |
 | 4 — Verification | See below | Archive running; analysis next |
 | 5 — Personalization & alerts | See below | Trips done |
@@ -442,6 +490,7 @@ Next:
 | GitHub Actions (4-hourly job; the snapshot step takes about 3 min) | $0 for a public repo |
 | Open-Meteo | $0 under non-commercial terms |
 | Station data | $0 |
+| NSIDC SNODAS (a file a day; the one-time history backfill runs on GitHub's runners) | $0 |
 | Domain | optional |
 
 - **Open-Meteo budget** (as of 2026-11-20, five resorts):
@@ -453,6 +502,7 @@ Next:
   - **One snapshot run** (measured 2026-11-20 01:53 UTC): 151 Open-Meteo requests, no retries or failures, 19.8 MB, 1,236.4 weighted calls (`X-RateLimit-Cost`, equal to the estimate), 184 s. First screens took 1,152.7 of those, NBM 3 of them; the rest bought one more station (Corral Pass), and eight lower-priority snowpack groups were skipped. WPC took 36 requests to NOAA; one failed after retries, a layer's distinct-times query, so no cell was left unknown. The verification record it wrote (cycle 2026-11-19T12Z, 11 points, 9 stations skipped) is 44.6 kB, 10.4 kB gzipped.
   - Full coverage would cost about 1,900–2,900 calls a run, mostly snowpack inputs at up to 15 stations (about 77–88 calls each, twice near a local midnight).
   - **Visitors:** with a fresh snapshot, the dashboard, the Storm tracker at mid (including the lazy panels), the last 7 days and the default Snowpack station make no Open-Meteo calls. Live calls remain for Run history (about 40 small requests per cold load), base/summit ensembles (6 requests, about 97 calls), other snowpack stations (7 requests, about 80 calls), and anything once the snapshot is older than 4.5 h. These count against the visitor's own IP, not the job's. Live forecasts are cached for 30 minutes and past runs indefinitely.
+- **NSIDC SNODAS:** one file of up to 35 MB a day from the scheduled job (each download stops once the depth and SWE members are in). The history backfill is about 6,300 files, 60–90 GB, in up to 23 runner jobs of a few minutes to two hours each, two at a time; public repositories don't pay for runner minutes. No key and no stated quota.
 - **NOAA WPC:** 36 requests a run to NOAA's ArcGIS service (9 distinct-times queries and 27 point queries), at most 3 at a time; no key and no stated quota.
 - **Single-provider risk:** all model forecast data comes through Open-Meteo. The fallback is NOAA NOMADS and ECMWF open data, which means GRIB processing on a server. That is out of scope unless Open-Meteo becomes unavailable.
 
@@ -468,6 +518,7 @@ Next:
 | Spread ≠ probability | Labelled as spread; equal centre weights; coverage rules | Reliability calibration (Phase 4) |
 | Changing blend membership with lead time | Model counts shown; ensemble plume stops below three centres | Optional fixed-membership blend for days 10–15 |
 | Station gaps and silence | Coverage threshold, gap filling of ≤ 2 days, preference order with automatic fallback, caveats in the UI | Whistler Roundhouse may never resume |
+| Stations sit below the ski terrain | SNODAS modelled points at each US band, opt-in and labelled modelled | SNODAS's bias at the bands is unknown: no measurements exist there, and the SNOTEL spot comparison (§5) is not independent. No equivalent for Whistler or Verbier |
 | Flaky or unfriendly sources | Server-side fetch with backoff, previous file kept on failure, on-disk cache for BC archives | NWAC stays link-only unless a licensed feed appears |
 | Long-range reliability | Days 10–15 shaded low confidence; run history exposes flip-flopping | — |
 

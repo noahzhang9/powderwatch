@@ -9,14 +9,16 @@ PowderWatch is a static React + TypeScript site (Vite, Tailwind, ECharts). It ha
 ```bash
 npm ci                 # install (see "Lockfile" below)
 npm test               # vitest: physics, stats, climatology, snowpack, time zones, snapshot plan/URL parity and daily budget, cache,
-                       # verification record + its Python validator, WPC parser
+                       # verification record + its Python validator, WPC parser, SNODAS reader + the obs validator
 npm run typecheck
 npm run build          # tsc + vite build → dist/
 npm run preview        # serve dist/ on 127.0.0.1:4173
 npm run build:local    # snapshot-only build (VITE_SNAPSHOT_ONLY=1): copies .cache/fc/ into dist/data/fc/
 npm run preview:local  # build:local, then serve it on 127.0.0.1:4173. Makes no Open-Meteo calls
 npm run dev            # 127.0.0.1:5173 with hot reload
-npm run obs            # refresh station data → public/data/obs/*.json (incremental; FULL_REFRESH=1 for full history)
+npm run obs            # refresh station data → public/data/obs/*.json (incremental; FULL_REFRESH=1 for full history),
+                       # and add new SNODAS days (`npm run obs -- snodas` for those alone)
+npm run backfill:snodas -- --dates 2026-11-15,2026-11-16 --out /tmp/snodas --compare   # a few SNODAS days only (see below)
 npm run snapshot       # fetch the forecast snapshot → dist/data/fc/ and .cache/fc/ (costs ~1,250 Open-Meteo weighted calls);
                        # also writes the verification record → .cache/verification/
 npm run backfill:verification -- --dry-run   # one-time archive backfill (Previous Runs API, ~540 weighted calls); see README
@@ -31,7 +33,7 @@ For browser checks, use `npm run preview:local`, not a fresh `npm run snapshot`.
 
 | Path | What lives there |
 |---|---|
-| `src/config/` | `models.ts` (model catalogue, colour slots, ensembles), `resorts.ts` (bands, model lists, links), `stations.ts` (observation stations, attribution) |
+| `src/config/` | `models.ts` (model catalogue, colour slots, ensembles), `resorts.ts` (bands, model lists, links), `stations.ts` (observation stations, attribution; `SNODAS_POINTS`, the modelled pseudo-stations) |
 | `src/lib/physics.ts` | Rain/snow split, snow ratio, freezing level, snow level. The single source for snow physics |
 | `src/lib/forecast.ts` | Per-model products, local-day totals, family-balanced blend, centre counts, precipitation type per band |
 | `src/lib/ensemble.ts` | Ensemble members, plumes, exceedance probabilities, split-day detection |
@@ -43,9 +45,10 @@ For browser checks, use `npm run preview:local`, not a fresh `npm run snapshot`.
 | `src/lib/benchmarks.ts`, `src/lib/wpc.ts` | Official guidance: NBM per local day; WPC's parser, static-file format and the browser's validation of it |
 | `src/hooks/data.ts` | `load*` functions and hooks that assemble requests into view data |
 | `src/views/` | Dashboard, Storm tracker (`StormView.tsx`, `storm/`), Run history, Snowpack, Methods (`About.tsx`) |
-| `scripts/` | `fetch-obs.ts` (station ingest), `snapshot-plan.ts` + `snapshot-forecasts.ts` (forecast snapshot), `fetch-wpc.ts` (WPC chances, called by the snapshot), `verification.ts` (verification record builder), `validate_verification.py` (the archive job's validator), `backfill-verification.ts`, `backtest-snowpack.ts` |
-| `public/data/obs/` | Generated station series (committed by the workflow; never edit by hand) |
+| `scripts/` | `fetch-obs.ts` (station ingest, and new SNODAS days), `obs-file.ts` (daily series ↔ station files), `validate_obs.py` (the commit jobs' validator), `snodas.ts` (SNODAS tar/grid reader), `backfill-snodas.ts` (SNODAS history, run by its workflow), `snapshot-plan.ts` + `snapshot-forecasts.ts` (forecast snapshot), `fetch-wpc.ts` (WPC chances, called by the snapshot), `verification.ts` (verification record builder), `validate_verification.py` (the archive job's validator), `backfill-verification.ts`, `backtest-snowpack.ts` |
+| `public/data/obs/` | Generated station series and SNODAS pseudo-station series (`snodas-*.json`), committed by the workflows; never edit by hand |
 | `.github/workflows/refresh-and-deploy.yml` | Every 4 h + on push to `main`: refresh → commit → build + snapshot → deploy, and archive (verification record → `data/verification`) |
+| `.github/workflows/backfill-snodas.yml` | Manual only (`workflow_dispatch`): SNODAS history by season → `public/data/obs/snodas-*.json` on `main` |
 | `data/verification` branch | Forecast-verification archive (`cycles/YYYY-MM/<cycle>.json`, `backfill/YYYY-MM/<date>.json`). Written only by the `archive` job and the validated backfill; never merged into `main` |
 
 ## Invariants: don't break these
@@ -69,7 +72,8 @@ If parity drifts, the cache silently stops working, and visits fall back to live
 - Top-level `permissions: {}`. Only the `commit` and `archive` jobs get `contents: write`, and they run **no npm code** (checkout, artifact download, system `python3`, `git`).
 - `refresh` and `build` are read-only with `persist-credentials: false`. `refresh` installs with `--ignore-scripts`.
 - Pin every action to a full commit SHA, with the tag in a comment. Don't add `pull_request`, `pull_request_target` or `workflow_run` triggers, and don't interpolate `${{ github.event.* }}` into `run:`; pass values through `env`.
-- The `commit` job validates incoming data (names, shape, finite bounded numbers) and re-serialises it rather than copying raw bytes.
+- The `commit` job validates incoming data (names, shape, finite bounded numbers) with `scripts/validate_obs.py` (`python3 -I`) and re-serialises it rather than copying raw bytes. A file must already exist on `main`. SNODAS files (`snodas-*.json`) are merged day by day with `main`'s copy instead of replaced, so a refresh that read them before a backfill commit can't drop the history. `scripts/snodas.test.ts` runs the validator on the committed files and on bad input; change them together.
+- `backfill-snodas.yml` follows the same split. `plan` (no token, no checkout) checks the `first_season`/`last_season` inputs, passed through `env`, and emits the season list. `extract` (read-only, `persist-credentials: false`, `npm ci --ignore-scripts`) runs one job per season with `max-parallel: 2`, skips days `main` already has and uploads a `snodas-<season>` artifact, also after a failure or its deadline. `commit` (`contents: write`, no npm code) downloads the artifacts to `$RUNNER_TEMP`, runs `validate_obs.py --backfill` (SNODAS files only, from `snodas-20xx` directories), commits once and pushes to `main`, starting over from the new `main` up to three times if a scheduled commit lands in between. No trigger but `workflow_dispatch`.
 - The `archive` job does the same for the verification record the read-only `build` job uploads: `scripts/validate_verification.py` (copied from `main` before switching branch, run with `python3 -I`) checks the file name, an allowed key set, finite bounded numbers and a size cap, then re-serialises it. It pushes **only** to `data/verification` (created as an orphan branch on first use) and never overwrites an archived file. `deploy` doesn't depend on it, and nothing in `build` that produces the record can fail the build. When you change the record (`scripts/verification.ts`), change the validator with it; `scripts/verification.test.ts` runs one on the other.
 
 **Browser security.**
@@ -88,10 +92,14 @@ If parity drifts, the cache silently stops working, and visits fall back to live
 - NWAC has no public API or licence: links only.
 - NOAA NBM comes through Open-Meteo (`ncep_nbm_conus`, CONUS only, about 11 days, hourly runs), so it needs no new browser host. The snapshot holds it at mid for the `officialGuidance` resorts; other bands are fetched live when the toggle is on.
 - NOAA/NWS WPC's winter chances are fetched **only by the scheduled job** (`scripts/fetch-wpc.ts`, from the snapshot run): ArcGIS point queries at each US resort's mid band, written as one content-addressed `data/fc/wpc-<hash>.json` named by the manifest's `wpc` entry. The browser reads that same-origin file and nothing else (no live fallback), so the CSP needs no NOAA host and visits make no NOAA calls. A failed query is an unknown cell, never "under 10%"; if nothing usable came back, no file is written and the site says so. The browser validates the file (`parseWpcFile`) like any untrusted input.
-- Keep the attribution strings in `stations.ts` and `wpc.ts` (`WPC_ATTRIBUTION`), the footer in `App.tsx` and `public/data/NOTICE.md` intact, and update them when adding a source.
+- NOAA NOHRSC SNODAS (NSIDC G02158, masked daily tars from `noaadata.apps.nsidc.org`) is fetched **only by scripts**: `fetch-obs.ts` adds days missing from the last 10 (one file serves every point; FULL_REFRESH doesn't apply), and the backfill workflow fetches history. The browser reads the same-origin `data/obs/snodas-*.json` files, so the CSP needs no NSIDC host and visits make no NSIDC or Open-Meteo calls for it. `scripts/snodas.ts` reads each file's own header (cell edges, spacing, `Meters / 1000`; the grid moved by 5% of a cell on 2013-10-01) and the big-endian int16 cells while decompressing; never write whole grids to disk. Each tar is up to 35 MB and a season about 3–4 GB: **never run a season backfill locally**; develop against a handful of `--dates` or a `--tar` on disk.
+- SNODAS points (`SNODAS_POINTS`, `modelled: true`) are not in `STATIONS`, so `stationsFor` (dashboard, Storm tracker's last 7 days, snapshot plan, verification) never sees them; only `snowpackChoicesFor` (the Snowpack tab) adds them. Their projections are live-only by design: they are not in `planSnapshot`.
+- Keep the attribution strings in `stations.ts` (including `SNODAS_ATTR` and NSIDC's `SNODAS_CITATION`) and `wpc.ts` (`WPC_ATTRIBUTION`), the footer in `App.tsx` and `public/data/NOTICE.md` intact, and update them when adding a source.
 - Never commit `dist/`, `.cache/` or snapshot files. Verification records go to the `data/verification` branch only, never `main`.
 
 **Station depths are not resort base depths.** The UI must always label them as measurements at a named station and elevation.
+
+**SNODAS values are model estimates, not measurements.** Wherever a SNODAS point is shown, the tile, chart title, legend and tooltip say "modelled", and the station line says what SNODAS is. Its climatology compares it only with its own SNODAS history.
 
 ## UI principle: don't overwhelm the user
 
@@ -99,6 +107,7 @@ The site stays calm and scannable as data sources are added. A new feature that 
 
 - **Dashboard: one glance per resort.** Depth vs normal, the next 3 and 7 days, the best day. A new source may add at most a one-word badge to a card.
 - **New data sources are opt-in.** Benchmark sources (NOAA NBM, WPC probabilities, SNODAS, satellite snow cover) go behind a toggle or an extra choice. Never add a new line or panel to a default view.
+  - SNODAS: extra choices after the stations in the Snowpack tab's picker ("… · modelled (SNODAS)", `station=` in the hash query). The default stays the measured station; SNODAS is not on the dashboard or the Storm tracker. Before its history is backfilled, a SNODAS point shows this season alone with a "History not yet backfilled" note, never empty bands.
 - **One main question per screen.** Supporting material sits under one clearly labelled **More detail** disclosure, closed by default, keyboard-accessible, with its state in the URL hash query (`more=1`).
   - Storm tracker: "how much snow, and do the models agree?" Open by default: the band/view controls, the headline tiles, the daily snowfall chart with its rain and phase/gust strips and legend, "Chance of snow totals", and a one-line run-to-run summary. Under More detail: the full run-change table, freezing level & snow level, temperature, the ensemble plume, and the last 7 days measured vs modelled.
   - "Compare with official guidance" (US resorts; off by default, `official=1` in the hash query) is the one switch for benchmark sources: NOAA NBM's mark on the daily chart, its legend entry, tooltip row and table column, and the "WPC official chances" table beside "Chance of snow totals" (WPC days are labelled as their own 24 h periods). With it off, nothing about them is shown or requested.
