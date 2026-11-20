@@ -37,7 +37,8 @@ export const PRIORITY = {
 
 /**
  * Groups up to this priority are what a visit sees first (every band's forecast, mid ensembles, run change,
- * last 7 days, the default Snowpack station). A run's budget grows to fit them (see runBudget).
+ * the default Snowpack station) or one click away (last 7 days, under the Storm tracker's "More detail").
+ * A run's budget grows to fit them (see runBudget).
  */
 export const FIRST_SCREENS = PRIORITY.snowpackDefaultNextDay;
 

@@ -3,7 +3,7 @@ import { MODELS } from '../config/models';
 import type { BandKey, Resort } from '../config/resorts';
 import { bandInText } from '../config/resorts';
 import { Chart, baseOption, tipHeader, tipRow, type EChartsCoreOption } from '../components/Chart';
-import { Lazy, Loading, ModelChip, Notice, RequestError, Section, Seg } from '../components/ui';
+import { Disclosure, Lazy, Loading, ModelChip, Notice, RequestError, Section, Seg } from '../components/ui';
 import { useBandForecast, useEnsembles, useRunMeta, type BandForecast, type EnsembleSet } from '../hooks/data';
 import { useNarrow } from '../hooks/useNarrow';
 import { useHashParam } from '../hooks/useRoute';
@@ -15,16 +15,20 @@ import { isNum } from '../lib/stats';
 import { dayLabel, localDate, localHourLabel, nowUnix, todayIn } from '../lib/time';
 import { RecentSection } from './RecentSection';
 import { DailyLegend, DailySnowChart, PhaseGustStrip, RainStrip } from './storm/Daily';
-import { Chances, RunChange, RunsRow, Totals } from './storm/Panels';
+import { Chances, RunChangeSummary, RunChangeTable, RunsRow, Totals, useRunChange } from './storm/Panels';
 
 const BANDS = ['base', 'mid', 'summit'] as const;
 const VIEWS = ['daily', 'cumulative'] as const;
+const MORE = ['0', '1'] as const;
+const RUN_TABLE_ID = 'run-change';
 
 export function StormView({ resort }: { resort: Resort }) {
   const fmt = useFmt();
   const narrow = useNarrow();
   const [bandKey, setBandKey] = useHashParam<BandKey>('band', 'mid', BANDS);
   const [mode, setMode] = useHashParam<(typeof VIEWS)[number]>('view', 'daily', VIEWS);
+  // "More detail": closed by default, remembered in the URL; its panels mount (and fetch) only when open.
+  const [more, setMore] = useHashParam<(typeof MORE)[number]>('more', '0', MORE);
   const band = resort.bands.find((b) => b.key === bandKey)!;
   const fc = useBandForecast(resort, band);
   const ens = useEnsembles({ lat: band.lat, lon: band.lon, elevation: band.elevation }, resort.tz);
@@ -33,6 +37,13 @@ export function StormView({ resort }: { resort: Resort }) {
   const [rawSnow, setRawSnow] = useState(false);
   const [showTable, setShowTable] = useState(false);
   const [allDays, setAllDays] = useState(false);
+
+  /** The summary's "full table" link: open More detail, then bring the table into view. */
+  const showRunTable = () => {
+    setMore('1');
+    const behavior = window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth';
+    setTimeout(() => document.getElementById(RUN_TABLE_ID)?.scrollIntoView({ behavior, block: 'start' }), 50);
+  };
 
   const toggle = (id: string) =>
     setHidden((h) => {
@@ -44,6 +55,7 @@ export function StormView({ resort }: { resort: Resort }) {
 
   const data = fc.data;
   const now = useMemo(() => nowUnix(), [data]);
+  const runChange = useRunChange(data, meta.data, band, resort, now);
   const today = todayIn(resort.tz);
   const visible = useMemo(() => (data ? data.models.filter((m) => !hidden.has(m.model.id)) : []), [data, hidden]);
   const dayCount = narrow && !allDays ? 8 : 16;
@@ -107,6 +119,7 @@ export function StormView({ resort }: { resort: Resort }) {
       {data && (
         <>
           <Totals data={data} now={now} ens={ens.data} fmt={fmt} rawSnow={rawSnow} resort={resort} band={band} />
+          <RunChangeSummary rc={runChange} fmt={fmt} onShowTable={showRunTable} />
           <Section
             title={`Snowfall at ${bandInText(band)} (${fmt.elev(band.elevation)})`}
             subtitle={mode === 'daily'
@@ -133,18 +146,25 @@ export function StormView({ resort }: { resort: Resort }) {
           </Section>
           {ens.error && <RequestError what="Ensemble" error={ens.error} retry={ens.retry} />}
           <Chances ens={ens.data} now={now} resort={resort} fmt={fmt} />
-          <Lazy><RunChange data={data} meta={meta.data} band={band} resort={resort} now={now} fmt={fmt} /></Lazy>
-          <Section
-            title="Freezing level & snow level"
-            subtitle="Thin lines: each model's freezing level (0 °C). Thick line: blended snow level, solid while precipitating. Rules: this resort's elevation bands."
+          <Disclosure
+            label="More detail"
+            hint="Run-to-run table · freezing & snow level · temperature · ensemble plume · last 7 days measured vs modelled"
+            open={more === '1'}
+            onToggle={(o) => setMore(o ? '1' : '0')}
           >
-            <LevelsChart data={data} visible={visible} resort={resort} fmt={fmt} />
-          </Section>
-          <Section title={`Temperature at ${bandInText(band)}`} subtitle="Model 2 m temperature downscaled to the band elevation.">
-            <TempChart data={data} visible={visible} tz={resort.tz} fmt={fmt} />
-          </Section>
-          <EnsembleSection ens={ens.data} loading={ens.loading} error={undefined} data={data} now={now} band={band} resort={resort} fmt={fmt} />
-          <Lazy><RecentSection resort={resort} band={band} /></Lazy>
+            <div id={RUN_TABLE_ID} className="scroll-mt-4"><RunChangeTable rc={runChange} fmt={fmt} /></div>
+            <Section
+              title="Freezing level & snow level"
+              subtitle="Thin lines: each model's freezing level (0 °C). Thick line: blended snow level, solid while precipitating. Rules: this resort's elevation bands."
+            >
+              <LevelsChart data={data} visible={visible} resort={resort} fmt={fmt} />
+            </Section>
+            <Section title={`Temperature at ${bandInText(band)}`} subtitle="Model 2 m temperature downscaled to the band elevation.">
+              <TempChart data={data} visible={visible} tz={resort.tz} fmt={fmt} />
+            </Section>
+            <EnsembleSection ens={ens.data} loading={ens.loading} error={undefined} data={data} now={now} band={band} resort={resort} fmt={fmt} />
+            <Lazy><RecentSection resort={resort} band={band} /></Lazy>
+          </Disclosure>
         </>
       )}
     </div>

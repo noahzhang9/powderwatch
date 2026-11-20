@@ -1,4 +1,5 @@
 /** Storm-tracker panels: headline totals, chances, run-to-run change and run times. */
+import { Fragment } from 'react';
 import { MODELS } from '../../config/models';
 import type { Band, Resort } from '../../config/resorts';
 import { bandInText } from '../../config/resorts';
@@ -9,7 +10,8 @@ import { probabilityAtLeast, probabilityFzlAbove, windowQuantiles, windowTotals 
 import { lastValidTime, windowSum, type DerivedHourly } from '../../lib/forecast';
 import type { RunMeta } from '../../lib/openmeteo';
 import type { Fmt } from '../../lib/prefs';
-import { runChangeModels } from '../../lib/requests';
+import { NOT_IN_SNAPSHOT, isNotInSnapshot } from '../../lib/cache';
+import { RUN_CHANGE_OFFSET_S, runChangeModels } from '../../lib/requests';
 import { isNum } from '../../lib/stats';
 import { ago, runLabel } from '../../lib/time';
 import { sinceLastVisit } from '../../lib/visits';
@@ -146,47 +148,105 @@ export function Chances({ ens, now, resort, fmt }: { ens?: EnsembleSet; now: num
   );
 }
 
+export interface RunChangeRow {
+  id: string;
+  init?: number;
+  /** This run's and the earlier run's totals for the next 3 and 7 days. */
+  c3: number | null;
+  c7: number | null;
+  p3: number | null;
+  p7: number | null;
+}
+
+export interface RunChangeState {
+  rows: RunChangeRow[];
+  loading: boolean;
+  error?: Error;
+}
+
 /**
  * How the latest run of each global model differs from its run 12 h earlier,
- * for the next 3 and 7 days at this band.
+ * for the next 3 and 7 days at this band. Shared by the one-line summary and the table.
  */
-export function RunChange({ data, meta, band, resort, now, fmt }: {
-  data: BandForecast; meta?: Record<string, RunMeta | null>; band: Band; resort: Resort; now: number; fmt: Fmt;
-}) {
-  const ids = runChangeModels(data.models.map((m) => m.model.id));
-  const prev = useAsync(() => loadRunChange(resort, band, ids, meta), [band.key, resort.id, meta != null, ids.join(',')], meta != null);
+export function useRunChange(
+  data: BandForecast | undefined, meta: Record<string, RunMeta | null> | undefined, band: Band, resort: Resort, now: number,
+): RunChangeState {
+  const ids = data ? runChangeModels(data.models.map((m) => m.model.id)) : [];
+  const prev = useAsync(() => loadRunChange(resort, band, ids, meta), [band.key, resort.id, meta != null, ids.join(',')], meta != null && data != null);
   const rows = ids.map((id) => {
-    const cur = data.models.find((m) => m.model.id === id)!;
+    const cur = data!.models.find((m) => m.model.id === id)!;
     const old = prev.data?.[id] ?? null;
     const w = (m: DerivedHourly | null, h: number) => (m ? modelWindow(m, now, h) : null);
     return { id, init: meta?.[id]?.initUnix, c3: w(cur, 72), c7: w(cur, 168), p3: w(old, 72), p7: w(old, 168) };
   });
-  const delta = (a: number | null, b: number | null) => {
-    if (a == null || b == null) return <span className="text-ink-3">—</span>;
-    const d = a - b;
-    if (Math.abs(d) < 0.5) return <span className="text-ink-3">no change</span>;
-    return <b>{d > 0 ? '▲ +' : '▼ −'}{fmt.snow(Math.abs(d))}</b>;
-  };
+  return { rows, loading: !prev.data && !prev.error, error: prev.error };
+}
+
+const OFFSET_H = RUN_CHANGE_OFFSET_S / 3600;
+
+function RunDelta({ a, b, fmt }: { a: number | null; b: number | null; fmt: Fmt }) {
+  if (a == null || b == null) return <span className="text-ink-3">—</span>;
+  const d = a - b;
+  if (Math.abs(d) < 0.5) return <span className="text-ink-3">no change</span>;
+  return <b className="text-ink">{d > 0 ? '▲ +' : '▼ −'}{fmt.snow(Math.abs(d))}</b>;
+}
+
+/** One line: each global model's 7-day change since its run 12 h earlier. */
+export function RunChangeSummary({ rc, fmt, onShowTable }: { rc: RunChangeState; fmt: Fmt; onShowTable?: () => void }) {
+  const rows = rc.rows.filter((r) => r.c7 != null && r.p7 != null);
+  const body = rc.error ? (
+    <span className="text-ink-3">{isNotInSnapshot(rc.error) ? NOT_IN_SNAPSHOT : 'previous runs unavailable'}</span>
+  ) : rc.loading ? (
+    <span className="text-ink-3">loading…</span>
+  ) : !rows.length ? (
+    <span className="text-ink-3">not available</span>
+  ) : (
+    <span>
+      {rows.map((r, i) => (
+        <Fragment key={r.id}>
+          {i > 0 && ', '}
+          <span className="whitespace-nowrap">{MODELS[r.id].label} <RunDelta a={r.c7} b={r.p7} fmt={fmt} /></span>
+        </Fragment>
+      ))}{' '}
+      <span className="text-ink-3">(7 days)</span>
+    </span>
+  );
+  return (
+    <p
+      className="text-sm text-ink-2 mt-3"
+      title={`Each global model's latest run against its run ${OFFSET_H} hours earlier: change in its snowfall total for the next 7 days at this elevation. Big swings mean low confidence.`}
+    >
+      vs. runs {OFFSET_H} h earlier: {body}
+      {onShowTable && rows.length > 0 && (
+        <button type="button" className="ml-2 text-xs underline text-ink-2 hover:text-ink" onClick={onShowTable}>full table</button>
+      )}
+    </p>
+  );
+}
+
+/** The full run-to-run table: latest run time, 3- and 7-day totals and their change. */
+export function RunChangeTable({ rc, fmt }: { rc: RunChangeState; fmt: Fmt }) {
+  const pending = rc.loading;
   return (
     <Section
       title="Change since the previous run"
-      subtitle="Each global model's latest run against its run 12 hours earlier, for the same window from now. Big swings mean low confidence; the Run history tab shows the full sequence."
+      subtitle={`Each global model's latest run against its run ${OFFSET_H} hours earlier, for the same window from now. Big swings mean low confidence; the Run history tab shows the full sequence.`}
     >
-      {prev.error && <RequestError what="Previous-run" error={prev.error} />}
+      {rc.error && <RequestError what="Previous-run" error={rc.error} />}
       <div className="overflow-x-auto">
         <table className="data">
           <thead>
             <tr><th>Model</th><th>Latest run</th><th>Next 3 days</th><th>Δ 3 days</th><th>Next 7 days</th><th>Δ 7 days</th></tr>
           </thead>
           <tbody>
-            {rows.map((r) => (
+            {rc.rows.map((r) => (
               <tr key={r.id}>
                 <td>{MODELS[r.id].label}</td>
                 <td>{r.init ? runLabel(r.init) : '—'}</td>
                 <td>{fmt.snow(r.c3)}</td>
-                <td>{prev.loading && !prev.data ? '…' : delta(r.c3, r.p3)}</td>
+                <td>{pending ? '…' : <RunDelta a={r.c3} b={r.p3} fmt={fmt} />}</td>
                 <td>{fmt.snow(r.c7)}</td>
-                <td>{prev.loading && !prev.data ? '…' : delta(r.c7, r.p7)}</td>
+                <td>{pending ? '…' : <RunDelta a={r.c7} b={r.p7} fmt={fmt} />}</td>
               </tr>
             ))}
           </tbody>

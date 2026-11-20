@@ -54,8 +54,8 @@ function stubNetwork() {
 }
 
 /**
- * Replays the views' requests: dashboard, storm tracker (mid band, plus the deterministic
- * forecast after switching band), run history's run timing, snowpack at every station.
+ * Replays the views' requests: dashboard, storm tracker (mid band with "More detail" open, plus the
+ * deterministic forecast after switching band), run history's run timing, snowpack at every station.
  */
 async function browserRequests(atS: number) {
   vi.setSystemTime(atS * 1000);

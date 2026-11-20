@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
+import { useEffect, useId, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { useAsync } from '../hooks/useAsync';
 import { NOT_IN_SNAPSHOT, SNAPSHOT_MAX_AGE_S, isNotInSnapshot, netStatus, snapshotInfo, subscribeNet } from '../lib/cache';
 import { ago, nowUnix } from '../lib/time';
@@ -128,6 +128,26 @@ export function Lazy({ children, minHeight = 200 }: { children: ReactNode; minHe
     return () => io.disconnect();
   }, [shown]);
   return <div ref={ref} style={shown ? undefined : { minHeight }}>{shown ? children : null}</div>;
+}
+
+/**
+ * Disclosure for supporting material ("More detail"). Children mount only while open, so their
+ * requests wait until someone asks for them. A button with aria-expanded, so it works from the keyboard.
+ */
+export function Disclosure({ label, hint, open, onToggle, children }: {
+  label: string; hint?: ReactNode; open: boolean; onToggle: (open: boolean) => void; children: ReactNode;
+}) {
+  const id = useId();
+  return (
+    <section className="mt-4" aria-label={label}>
+      <button type="button" className="disclosure" aria-expanded={open} aria-controls={id} onClick={() => onToggle(!open)}>
+        <span aria-hidden className="disclosure-mark">▸</span>
+        <span className="font-semibold text-ink">{label}</span>
+        {hint && <span className="text-xs text-ink-2">{hint}</span>}
+      </button>
+      <div id={id} hidden={!open}>{open ? children : null}</div>
+    </section>
+  );
 }
 
 /** Legend + visibility toggle for a model; mirrors the line mark it controls. */
