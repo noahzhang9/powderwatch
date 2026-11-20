@@ -83,13 +83,15 @@ jobs:
         env:
           SEASON: ${{ matrix.season }}
           PW_CONTACT: ${{ github.server_url }}/${{ github.repository }}
-        run: npm run backfill:snodas -- --season "$SEASON" --skip-existing --deadline-min 130 --out "$RUNNER_TEMP/snodas"
+        run: npm run backfill:snodas -- --season "$SEASON" --skip-existing --deadline-min 130 --out "$RUNNER_TEMP/snodas/snodas-$SEASON"
       # Also after a failed or timed-out extract: the commit job merges whatever days it finished.
+      # The artifact holds the snodas-<season>/ directory itself (the upload path is its parent), so the
+      # commit job finds each season in its own directory however many artifacts it downloads.
       - if: ${{ !cancelled() }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: snodas-${{ matrix.season }}
-          path: ${{ runner.temp }}/snodas/*.json
+          path: ${{ runner.temp }}/snodas
           retention-days: 7 # a failed commit job can be re-run within a week
           if-no-files-found: ignore
 
@@ -105,9 +107,12 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: main
+      # merge-multiple: each artifact already carries its snodas-<season>/ directory. Without it, a lone matching
+      # artifact (a one-season run) is extracted straight into incoming/, with no directory of its own.
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: snodas-*
+          merge-multiple: true
           path: ${{ runner.temp }}/incoming
       - name: Validate, merge and commit to main (never copy raw bytes)
         run: |
