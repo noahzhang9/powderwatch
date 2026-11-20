@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { RESORTS, resortById, type Resort } from '../config/resorts';
 import { stationsFor } from '../config/stations';
 import { RequestError } from '../components/ui';
@@ -22,6 +22,10 @@ import { LOW_CENTRES } from './storm/Daily';
 import { addDays, dayLabel, daysBetween, localMidnightUnix, nowUnix, shortDate, todayIn, weekday } from '../lib/time';
 
 export function Dashboard() {
+  const trips = useTrips();
+  const hasTrips = trips.upcoming.length > 0;
+  // A first trip saved below the cards appears above them: scroll there.
+  const [moved, setMoved] = useState(false);
   return (
     <div className="pt-5">
       <h1 className="text-2xl font-semibold tracking-tight">Conditions & outlook</h1>
@@ -30,10 +34,11 @@ export function Dashboard() {
         7-day totals lead with the ensemble median. Snow depths come from nearby measurement stations and are compared against those stations' own history.
       </p>
       <WhereWhen />
-      <Trips />
+      {hasTrips && <Trips state={trips} reveal={moved} />}
       <div className="grid lg:grid-cols-3 gap-4 mt-4">
         {RESORTS.map((r) => <ResortCard key={r.id} resort={r} />)}
       </div>
+      {!hasTrips && <Trips state={trips} compact onAdded={() => setMoved(true)} />}
     </div>
   );
 }
@@ -325,22 +330,55 @@ function loadTrips(): Trip[] {
   }
 }
 
-function Trips() {
+function useTrips() {
   const [trips, setTrips] = useState<Trip[]>(loadTrips);
-  const [adding, setAdding] = useState(false);
   const save = (t: Trip[]) => {
     storageSet('pw-trips', JSON.stringify(t));
     setTrips(t);
   };
   const upcoming = trips.filter((t) => t.end >= todayIn(resortById(t.resortId)?.tz ?? 'UTC')).sort((a, b) => a.start.localeCompare(b.start));
+  return { trips, upcoming, save };
+}
+
+type TripsState = ReturnType<typeof useTrips>;
+
+/**
+ * Upcoming trips, above the cards. With none, only a compact "+ Add trip" below them; the first trip saved
+ * there moves the section up, so `reveal` scrolls to it and focuses its heading.
+ */
+function Trips({ state, compact = false, reveal = false, onAdded }: { state: TripsState; compact?: boolean; reveal?: boolean; onAdded?: () => void }) {
+  const { trips, upcoming, save } = state;
+  const [adding, setAdding] = useState(false);
+  const heading = useRef<HTMLHeadingElement>(null);
+  useEffect(() => {
+    if (!reveal || !heading.current) return;
+    heading.current.scrollIntoView({ block: 'center' });
+    heading.current.focus({ preventScroll: true });
+  }, [reveal]);
+  const add = (t: Trip) => {
+    save([...trips, t]);
+    setAdding(false);
+    onAdded?.();
+  };
+  const toggle = <button type="button" className="chip" aria-expanded={adding} onClick={() => setAdding((a) => !a)}>{adding ? 'Cancel' : '+ Add trip'}</button>;
+  if (compact) {
+    return (
+      <section className="mt-4" aria-label="Trips">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+          {toggle}
+          {!adding && <span className="text-xs text-ink-3">Trips stay in this browser only.</span>}
+        </div>
+        {adding && <TripForm onAdd={add} />}
+      </section>
+    );
+  }
   return (
     <section className="mt-4">
       <div className="flex items-center gap-3">
-        <h2 className="text-base font-semibold">Upcoming trips</h2>
-        <button type="button" className="chip" onClick={() => setAdding((a) => !a)}>{adding ? 'Cancel' : '+ Add trip'}</button>
+        <h2 ref={heading} tabIndex={-1} className="text-base font-semibold outline-none">Upcoming trips</h2>
+        {toggle}
       </div>
-      {adding && <TripForm onAdd={(t) => { save([...trips, t]); setAdding(false); }} />}
-      {upcoming.length === 0 && !adding && <div className="text-sm text-ink-3 mt-2">No trips saved. Trips stay in this browser only.</div>}
+      {adding && <TripForm onAdd={add} />}
       <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-3 mt-2">
         {upcoming.map((t) => <TripCard key={t.id} trip={t} onRemove={() => save(trips.filter((x) => x.id !== t.id))} />)}
       </div>

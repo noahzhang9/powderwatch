@@ -249,7 +249,7 @@ The same period's GFS runs read 74 → 20 → 14 → 0 → 25 cm. A storm vanish
 
 The day-by-day numbers live in the grid alone; the Storm tracker has the snow level and the last 7 days measured.
 
-**Trips** (saved in browser localStorage only):
+**Trips** (saved in browser localStorage only; above the cards once one is saved, a compact "+ Add trip" below them until then):
 
 - **Within 14 days:** expected new snow from 2 days before arrival to the last day, snow level, and a confidence label by lead time.
 - **Further out:** the station's median depth for the trip dates.
