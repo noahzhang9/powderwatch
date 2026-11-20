@@ -15,13 +15,15 @@ import { addDays, localDate, localMidnightUnix } from '../src/lib/time';
 import type { WpcFile } from '../src/lib/wpc';
 import { snowpackRequests } from './snapshot-plan';
 import {
-  CYCLE_HOURS, CYCLE_MODELS, RECORD_DAYS, RECORD_THRESHOLDS_CM, buildBackfillRecords, buildVerificationRecord, chooseCycle, cycleOf, firstDay,
-  recordFileName,
+  CYCLE_HOURS, CYCLE_MODELS, RECORD_DAYS, RECORD_THRESHOLDS_CM, buildBackfillRecords, buildVerificationRecord, chooseCycle, cycleModels, cycleOf,
+  firstDay, recordFileName,
 } from './verification';
 
 const T = (iso: string) => Date.parse(iso) / 1000;
 const NOW_S = T('2026-11-20T08:20:00Z');
 const CRYSTAL = RESORTS.find((r) => r.id === 'crystal')!;
+const VERBIER = RESORTS.find((r) => r.id === 'verbier')!;
+const UKMO = 'ukmo_global_deterministic_10km';
 const VALIDATOR = fileURLToPath(new URL('./validate_verification.py', import.meta.url));
 
 const metaAt = (inits: Record<string, string>): Record<string, RunMeta | null> =>
@@ -30,10 +32,26 @@ const allAt = (iso: string, over: Record<string, string> = {}) =>
   metaAt({ ...Object.fromEntries([...new Set([...RESORTS.flatMap((r) => r.models), NBM.id])].map((id) => [id, iso])), ...over });
 
 describe('cycle choice', () => {
-  it('uses the full-length cycles the catalogue lists for every global model', () => {
+  it('uses the global models every resort shows, at the full-length cycles the catalogue lists for them', () => {
     expect(CYCLE_HOURS).toEqual([0, 12]);
-    expect(CYCLE_MODELS).toEqual(expect.arrayContaining(['ecmwf_ifs025', 'gfs_global', 'gem_global', 'icon_global', 'ecmwf_aifs025_single']));
-    expect(CYCLE_MODELS.every((id) => MODELS[id].kind === 'global')).toBe(true);
+    expect(CYCLE_MODELS).toEqual(['ecmwf_ifs025', 'gfs_global', 'gem_global', 'icon_global', 'ecmwf_aifs025_single', 'ukmo_global_deterministic_10km']);
+    expect(CYCLE_MODELS.every((id) => MODELS[id].kind === 'global' && RESORTS.every((r) => r.models.includes(id)))).toBe(true);
+  });
+
+  it("doesn't let a slow global model that only some resorts show delay the cycle", () => {
+    // UKMO shown at Crystal only, and still on yesterday's 12Z run.
+    const resorts = [CRYSTAL, { ...VERBIER, models: VERBIER.models.filter((id) => id !== UKMO) }];
+    expect(cycleModels(resorts)).not.toContain(UKMO);
+    const meta = allAt('2026-11-20T00:00Z', { [UKMO]: '2026-11-19T12:00Z' });
+    // Shown everywhere, it holds the cycle back.
+    expect(chooseCycle(meta)!.cycleS).toBe(T('2026-11-19T12:00:00Z'));
+    const rec = buildVerificationRecord({ nowS: NOW_S, meta, obs: {}, json: fakeResponse, resorts })!;
+    expect(rec.cycle).toBe('2026-11-20T00Z');
+    expect(rec.lagging).toEqual([]);
+    // Crystal still archives UKMO's latest run, and says which one it was.
+    expect(rec.runs[UKMO]).toBe('2026-11-19T12:00Z');
+    expect(Object.keys(rec.points.find((p) => p.resort === 'crystal')!.models)).toContain(UKMO);
+    expect(Object.keys(rec.points.find((p) => p.resort === 'verbier')!.models)).not.toContain(UKMO);
   });
 
   it('floors a run to its full-length cycle', () => {
@@ -271,6 +289,23 @@ describe.skipIf(!python)('validate_verification.py', () => {
 
   it('accepts what the builder writes', () => {
     const res = run('--check', write(recordFileName(rec), JSON.stringify(rec)));
+    expect(res.stderr).toBe('');
+    expect(res.status).toBe(0);
+  });
+
+  it("accepts a Japanese resort: Asia/Tokyo and JMA's model ids", () => {
+    const res = run('--check', tampered((r) => {
+      const points = r.points as { resort: string; tz: string; models: Record<string, unknown> }[];
+      for (const p of points) {
+        p.resort = 'niseko';
+        p.tz = 'Asia/Tokyo';
+        p.models.jma_gsm = p.models.gfs_global;
+        p.models.jma_msm = p.models.ncep_hrrr_conus ?? p.models.gfs_global;
+      }
+      (r.runs as Record<string, string>).jma_gsm = '2026-11-19T12:00Z';
+      (r.runs as Record<string, string>).jma_msm = '2026-11-20T03:00Z';
+      (r.skipped as { resort: string }[]).forEach((s) => (s.resort = 'niseko'));
+    }));
     expect(res.stderr).toBe('');
     expect(res.status).toBe(0);
   });

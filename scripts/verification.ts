@@ -4,7 +4,7 @@
  * build records from canned responses.
  *
  * One record per global cycle (00Z/12Z, from the model catalogue's full-length runs): every snapshot run
- * builds the record for the newest cycle that all current global models carry, and the workflow's
+ * builds the record for the newest cycle that the global models every resort shows carry, and the workflow's
  * `archive` job keeps only the first one it sees for each cycle (it never overwrites a file). So the
  * archived record comes from the first snapshot run that carried the cycle.
  *
@@ -46,10 +46,17 @@ export const RECORD_THRESHOLDS_CM = [...CHANCE_THRESHOLDS_CM.imperial];
 /** Multi-day windows from the start of day 1, as in the "Chance of snow totals" table. */
 export const RECORD_WINDOWS_D = CHANCE_HORIZONS_H.map((h) => h / 24);
 
-/** Global models that define a cycle: every global model any resort shows. */
-export const CYCLE_MODELS = [...new Set(RESORTS.flatMap((r) => r.models))].filter((id) => MODELS[id]?.kind === 'global');
-/** UTC hours of the full-length cycles every global model runs (the catalogue's `historyRunsUtc`). */
-export const CYCLE_HOURS = CYCLE_MODELS.map((id) => MODELS[id].historyRunsUtc).reduce((a, b) => a.filter((h) => b.includes(h)));
+/**
+ * Global models that define a cycle: those every resort shows. A global model that only some resorts show
+ * stays out, so a slow one (JMA's GSM is available about 9.5 h after its start) can't hold every resort's
+ * record back; the record still holds its latest run, with that run's time in `runs`.
+ */
+export const cycleModels = (resorts: Resort[] = RESORTS) =>
+  resorts.map((r) => r.models.filter((id) => MODELS[id]?.kind === 'global')).reduce((a, b) => a.filter((id) => b.includes(id)));
+/** UTC hours of the full-length cycles all of `models` run (the catalogue's `historyRunsUtc`). */
+export const cycleHours = (models: string[]) => models.map((id) => MODELS[id].historyRunsUtc).reduce((a, b) => a.filter((h) => b.includes(h)));
+export const CYCLE_MODELS = cycleModels();
+export const CYCLE_HOURS = cycleHours(CYCLE_MODELS);
 
 /** Latest full-length cycle time at or before `initUnix`. */
 export function cycleOf(initUnix: number, hours = CYCLE_HOURS): number {
@@ -60,9 +67,9 @@ export function cycleOf(initUnix: number, hours = CYCLE_HOURS): number {
 }
 
 export interface CycleChoice {
-  /** Newest cycle (unix s) that every current global model has run. */
+  /** Newest cycle (unix s) that every current cycle model has run. */
   cycleS: number;
-  /** Global models without run metadata, or more than one cycle behind the newest: they don't hold the cycle back. */
+  /** Cycle models without run metadata, or more than one cycle behind the newest: they don't hold the cycle back. */
   lagging: string[];
 }
 
@@ -263,7 +270,8 @@ function modelFields(models: DerivedHourly[], days: string[], tz: string): Recor
 /** Builds the record for the cycle this snapshot carries; null when the run metadata can't name one. */
 export function buildVerificationRecord(input: RecordInput): VerificationRecord | null {
   const resorts = input.resorts ?? RESORTS;
-  const cycle = chooseCycle(input.meta);
+  const cycleIds = cycleModels(resorts);
+  const cycle = chooseCycle(input.meta, cycleIds, cycleHours(cycleIds));
   if (!cycle) return null;
   const points: PointRecord[] = [];
   const skipped: VerificationRecord['skipped'] = [];

@@ -96,7 +96,7 @@ appears once the last scheduled update is more than 8 hours old.
 ## Forecast-verification archive
 
 Each snapshot run also builds a verification record from the responses it fetched (no extra
-Open-Meteo calls): for the newest 00Z/12Z cycle that every current global model has run, the
+Open-Meteo calls): for the newest 00Z/12Z cycle that the global models every resort shows have run, the
 forecasts for local days 1–10 at each resort's mid band (blend and each model) and at each station's
 own point (each snowpack-scenario model), with ensemble quantiles and the "Chance of snow totals"
 chances. `scripts/verification.ts` builds it; docs/proposal.md §6 lists every field.
