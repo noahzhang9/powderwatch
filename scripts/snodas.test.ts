@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { gzipSync } from 'node:zlib';
 import { describe, expect, it } from 'vitest';
 import { RESORTS } from '../src/config/resorts';
-import { SNODAS_POINTS, STATIONS, snowpackChoicesFor, stationsFor } from '../src/config/stations';
+import { SNODAS_CITATION, SNODAS_DOI, SNODAS_POINTS, STATIONS, snowpackChoicesFor, stationsFor } from '../src/config/stations';
 import type { StationFile } from '../src/lib/obs';
 import {
   MAX_DEPTH_CM, MAX_SWE_MM, SnodasFormatError, cellIndex, extractDay, parseHeader, readCells, readTarMembers, scaleCell, snodasUrl, toMetres,
@@ -205,6 +205,16 @@ describe('SNODAS tar stream', () => {
     expect(day.values.get('b')).toMatchObject({ depthCm: 188.3, sweMm: 753 });
   });
 
+  it('keeps the product a day has when its tar lacks the other', async () => {
+    const depthOnly = Buffer.concat([
+      tarEntry(name('1036', date, 'txt'), gzipSync(Buffer.from(header({ date }), 'latin1'))),
+      tarEntry(name('1036', date, 'dat'), gzipSync(grid(DEPTH))),
+      Buffer.alloc(1024),
+    ]);
+    const day = await extractDay(chunked(depthOnly), date, points.slice(0, 2));
+    expect(day.values.get('b')).toMatchObject({ depthCm: 188.3, sweMm: null });
+  });
+
   it('stops reading as soon as both products are in', async () => {
     // Anything after the last wanted member, even garbage, is never read.
     const tar = Buffer.concat([dayTar(date).subarray(0, -1024), Buffer.from('not a tar header'.repeat(40))]);
@@ -262,6 +272,11 @@ describe('SNODAS points', () => {
       expect(choices.slice(stationsFor(r).length).every((s) => s.modelled)).toBe(true);
     }
     expect(snowpackChoicesFor('whistler')).toEqual(stationsFor('whistler'));
+  });
+
+  it("cite NSIDC's DOI (the Methods page links it inside the citation)", () => {
+    expect(SNODAS_CITATION).toContain(SNODAS_DOI);
+    expect(SNODAS_CITATION).toMatch(/^National Operational Hydrologic Remote Sensing Center\. \(2004\)\. Snow Data Assimilation System \(SNODAS\) Data Products at NSIDC\./);
   });
 
   it('have committed files, so the commit job accepts their refreshes', () => {

@@ -260,7 +260,7 @@ export interface SnodasDay {
   date: string;
   /** Per point: depth (cm) and SWE (mm); null where the cell has no data or the point is off the grid. */
   values: Map<string, { depthCm: number | null; sweMm: number | null; row: number | null; col: number | null }>;
-  /** The depth grid's north-west corner, to tell the two grid eras apart. */
+  /** The grid's north-west corner (depth's, unless the day lacks it), to tell the two grid eras apart. */
   origin: { minX: number; maxY: number };
 }
 
@@ -276,16 +276,21 @@ export async function extractDay(chunks: AsyncIterable<Uint8Array>, date: string
     return have.size === 4;
   };
   const got = await readTarMembers(chunks, (n) => role(n) != null, complete);
-  if (!complete(got)) throw new SnodasFormatError(`tar lacks the depth/SWE members for ${date}`);
-  const member = (product: Product, kind: string) => got.get([...got.keys()].find((n) => { const r = role(n)!; return r.product === product && r.kind === kind; })!)!;
+  const member = (product: Product, kind: string) => {
+    const name = [...got.keys()].find((n) => { const r = role(n)!; return r.product === product && r.kind === kind; });
+    return name ? got.get(name)! : null;
+  };
+  // NSIDC lists a few days whose tar lacks one product (G02158_missing_files.txt): keep the other one.
+  const products = (['depth', 'swe'] as const).filter((p) => member(p, 'hdr') && member(p, 'dat'));
+  if (!products.length) throw new SnodasFormatError(`tar lacks the depth/SWE members for ${date}`);
   const values: SnodasDay['values'] = new Map(points.map((p) => [p.id, { depthCm: null, sweMm: null, row: null, col: null }]));
   let origin = { minX: NaN, maxY: NaN };
-  for (const product of ['depth', 'swe'] as const) {
-    const g = parseHeader(gunzipSync(member(product, 'hdr')).toString('latin1'));
+  for (const product of products) {
+    const g = parseHeader(gunzipSync(member(product, 'hdr')!).toString('latin1'));
     if (g.validUtc !== `${date}T06:00:00Z`) throw new SnodasFormatError(`${product} header is valid at ${g.validUtc}, not ${date}T06:00:00Z`);
-    if (product === 'depth') origin = { minX: g.minX, maxY: g.maxY };
+    if (product === products[0]) origin = { minX: g.minX, maxY: g.maxY };
     const idx = points.map((p) => cellIndex(g, p.lat, p.lon));
-    const raw = await readCells(member(product, 'dat'), g, idx.filter((c) => c != null).map((c) => c.row * g.cols + c.col));
+    const raw = await readCells(member(product, 'dat')!, g, idx.filter((c) => c != null).map((c) => c.row * g.cols + c.col));
     points.forEach((p, k) => {
       const c = idx[k];
       const v = values.get(p.id)!;
