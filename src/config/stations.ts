@@ -51,7 +51,7 @@ export const STATIONS: StationDef[] = [
     url: 'https://wcc.sc.egov.usda.gov/nwcc/site?sitenum=1085', attribution: SNOTEL_ATTR,
     dailyNote: 'Midnight (PST) reading; record since 2006.',
   },
-  // --- Summit at Snoqualmie & Alpental ---
+  // --- Snoqualmie / Alpental (The Summit at Snoqualmie) ---
   {
     id: 'snotel-672', resortId: 'snoqualmie', name: 'Olallie Meadows', source: 'SNOTEL', sourceId: '672:WA:SNTL',
     lat: 47.3741, lon: -121.4421, elevation: 1222, swe: true,

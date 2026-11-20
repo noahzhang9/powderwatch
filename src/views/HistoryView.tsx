@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useState } from 'react';
 import { HISTORY_MODELS, MODELS } from '../config/models';
 import type { BandKey, Resort } from '../config/resorts';
+import { bandInText } from '../config/resorts';
 import { Chart, baseOption, tipHeader, tipRow, type EChartsCoreOption } from '../components/Chart';
 import { Loading, ModelChip, Notice, Section, Seg } from '../components/ui';
 import { useBandForecast, useRunMeta } from '../hooks/data';
@@ -112,7 +113,7 @@ export function HistoryView({ resort }: { resort: Resort }) {
       </div>
       <Section
         title={`How the forecast for ${dayLabel(start)} – ${dayLabel(addDays(start, len - 1))} changed`}
-        subtitle={`Snowfall forecast for this ${len}-day window at ${band.label.toLowerCase()} (${fmt.elev(band.elevation)}), by model run (00Z and 12Z runs, last 7 days). Each point is one run; read left to right to see a storm appear, vanish or return. Past runs come from Open-Meteo's single-run archive, processed with the same snow physics as live forecasts.`}
+        subtitle={`Snowfall forecast for this ${len}-day window at ${bandInText(band)} (${fmt.elev(band.elevation)}), by model run (00Z and 12Z runs, last 7 days). Each point is one run; read left to right to see a storm appear, vanish or return. Past runs come from Open-Meteo's single-run archive, processed with the same snow physics as live forecasts.`}
       >
         {runs.error && <Notice tone="error">{runs.error.message}</Notice>}
         {!runs.data ? (

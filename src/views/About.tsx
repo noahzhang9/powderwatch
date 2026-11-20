@@ -95,7 +95,8 @@ export function About() {
       <ul className="list-disc pl-5">
         {RESORTS.map((r) => (
           <li key={r.id}>
-            <b className="text-ink">{r.name}:</b> {r.models.map((m) => MODELS[m].label).join(', ')}. Stations:{' '}
+            <b className="text-ink">{r.name}:</b> {r.bands.map((b) => `${b.label} ${fmt.elev(b.elevation)}`).join(', ')}.{' '}
+            {r.models.map((m) => MODELS[m].label).join(', ')}. Stations:{' '}
             {STATIONS.filter((s) => s.resortId === r.id).map((s) => `${s.name} (${s.source}, ${fmt.elev(s.elevation)})`).join('; ')}.
           </li>
         ))}

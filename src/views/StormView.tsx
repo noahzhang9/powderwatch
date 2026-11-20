@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useState } from 'react';
 import { MODELS } from '../config/models';
 import type { BandKey, Resort } from '../config/resorts';
+import { bandInText } from '../config/resorts';
 import { Chart, baseOption, tipHeader, tipRow, type EChartsCoreOption } from '../components/Chart';
 import { Lazy, Loading, ModelChip, Notice, Section, Seg } from '../components/ui';
 import { useBandForecast, useEnsembles, useRunMeta, type BandForecast, type EnsembleSet } from '../hooks/data';
@@ -111,7 +112,7 @@ export function StormView({ resort }: { resort: Resort }) {
         <>
           <Totals data={data} now={now} ens={ens.data} fmt={fmt} rawSnow={rawSnow} resort={resort} band={band} />
           <Section
-            title={`Snowfall at ${band.label.toLowerCase()} (${fmt.elev(band.elevation)})`}
+            title={`Snowfall at ${bandInText(band)} (${fmt.elev(band.elevation)})`}
             subtitle={mode === 'daily'
               ? 'Blend of all models, shaded by amount, total under each day. Hover a day for every model, the ensemble range and whether the models are split.'
               : 'Cumulative snowfall from now. Thick line: blend.'}
@@ -145,7 +146,7 @@ export function StormView({ resort }: { resort: Resort }) {
           >
             <LevelsChart data={data} visible={visible} resort={resort} fmt={fmt} />
           </Section>
-          <Section title={`Temperature at ${band.label.toLowerCase()}`} subtitle="Model 2 m temperature downscaled to the band elevation.">
+          <Section title={`Temperature at ${bandInText(band)}`} subtitle="Model 2 m temperature downscaled to the band elevation.">
             <TempChart data={data} visible={visible} tz={resort.tz} fmt={fmt} />
           </Section>
           <EnsembleSection ens={ens.data} loading={ens.loading} error={undefined} data={data} now={now} band={band} resort={resort} fmt={fmt} />
@@ -242,8 +243,15 @@ function LevelsChart({ data, visible, resort, fmt }: { data: BandForecast; visib
             markLine: {
               silent: true, symbol: 'none',
               lineStyle: { color: p.ink3, type: 'solid', width: 1 },
-              label: { color: p.ink2, fontSize: 11, position: 'insideStartTop', formatter: (x: { name: string }) => x.name },
-              data: resort.bands.map((b) => ({ yAxis: fmt.elevVal(b.elevation), name: `${b.label} ${fmt.elev(b.elevation)}` })),
+              label: {
+                color: p.ink2, fontSize: 11, position: 'insideStartTop', formatter: (x: { name: string }) => x.name,
+                backgroundColor: p.surface, padding: [1, 3], borderRadius: 2,
+              },
+              // The lowest band's label sits under its line, so bands a few hundred metres apart don't overprint.
+              data: resort.bands.map((b) => ({
+                yAxis: fmt.elevVal(b.elevation), name: `${b.label} ${fmt.elev(b.elevation)}`,
+                ...(b.elevation === Math.min(...resort.bands.map((x) => x.elevation)) ? { label: { position: 'insideStartBottom' } } : {}),
+              })),
             },
           },
         ],
@@ -380,7 +388,7 @@ function EnsembleSection({ ens, loading, error, data, now, band, resort, fmt }: 
       title="Ensemble plume"
       subtitle={
         <>
-          {ens ? `${ens.members.length} members from ${new Set(ens.members.map((m) => m.def.label)).size} ensembles` : 'Ensembles'} at {band.label.toLowerCase()} ({fmt.elev(band.elevation)}).
+          {ens ? `${ens.members.length} members from ${new Set(ens.members.map((m) => m.def.label)).size} ensembles` : 'Ensembles'} at {bandInText(band)} ({fmt.elev(band.elevation)}).
           Each forecast centre gets equal weight. This is model spread, not a verified probability.
           Fewer centres contribute at longer leads (ICON-EPS ends near day 7, MOGREPS-G near day 10); the plume stops when fewer than three centres remain.
         </>

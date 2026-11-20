@@ -1,6 +1,7 @@
 /** Storm-tracker panels: headline totals, chances, run-to-run change and run times. */
 import { MODELS } from '../../config/models';
 import type { Band, Resort } from '../../config/resorts';
+import { bandInText } from '../../config/resorts';
 import { Notice, Section, Tile } from '../../components/ui';
 import { loadRunChange, type BandForecast, type EnsembleSet } from '../../hooks/data';
 import { useAsync } from '../../hooks/useAsync';
@@ -131,7 +132,7 @@ export function Chances({ ens, now, resort, fmt }: { ens?: EnsembleSet; now: num
             ))}
             {resort.bands.slice(1).map((b) => (
               <tr key={b.key}>
-                <td>Freezing level above {b.label.toLowerCase()} ({fmt.elev(b.elevation)})</td>
+                <td>Freezing level above {bandInText(b)} ({fmt.elev(b.elevation)})</td>
                 {horizons.map((h) => {
                   const pr = probabilityFzlAbove(ens.time, ens.members, now, now + h * 3600, b.elevation);
                   return <td key={h}>{pr == null ? '—' : `${Math.round(pr * 100)}%`}</td>;

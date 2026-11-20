@@ -1,5 +1,6 @@
 import { useCallback, useMemo, useState } from 'react';
 import type { Band, Resort } from '../config/resorts';
+import { bandInText } from '../config/resorts';
 import { stationsFor, type StationDef } from '../config/stations';
 import { Chart, baseOption, tipHeader, tipRow, type EChartsCoreOption } from '../components/Chart';
 import { Loading, Notice, Section, Seg } from '../components/ui';
@@ -211,7 +212,7 @@ function RecentTable({ rows, dates, bandModel, band, fmt }: {
           })}
           {bandModel && (
             <tr>
-              <td style={{ paddingTop: 10 }}><b>Models at {band.label.toLowerCase()}</b> <span className="text-ink-3">· {fmt.elev(band.elevation)}</span></td>
+              <td style={{ paddingTop: 10 }}><b>Models at {bandInText(band)}</b> <span className="text-ink-3">· {fmt.elev(band.elevation)}</span></td>
               {bandModel.map((v, i) => <td key={i} style={{ paddingTop: 10 }}>{fmt.snow(v)}</td>)}
               <td style={{ paddingTop: 10 }}>{fmt.snow(sumOrNull(bandModel))}</td>
             </tr>

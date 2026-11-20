@@ -9,6 +9,8 @@ export interface Band {
   elevation: number;
   lat: number;
   lon: number;
+  /** The label as it reads mid-sentence ("snowfall at mid"); defaults to the label in lower case. */
+  inText?: string;
 }
 
 export interface Link {
@@ -52,11 +54,11 @@ export const RESORTS: Resort[] = [
     ],
   },
   {
-    // One resort, four base areas on one ticket. Alpental (north of I-90) is the upper band rather than its own
+    // The Summit at Snoqualmie: one resort, four base areas on one ticket. Alpental (north of I-90) is the upper band rather than its own
     // resort: it is 4 km from Summit Central, shares its stations and NWAC zone, and the global models can't
     // tell the two apart, so only elevation differs — which is what bands are for.
     id: 'snoqualmie',
-    name: 'Summit at Snoqualmie & Alpental',
+    name: 'Snoqualmie / Alpental',
     short: 'Snoqualmie',
     region: 'Washington Cascades',
     tz: 'America/Los_Angeles',
@@ -66,7 +68,7 @@ export const RESORTS: Resort[] = [
       // Top of Summit Central, 3,865 ft (operator trail map); the upper end of Summit West/Central/East.
       { key: 'mid', label: 'Mid', elevation: 1178, lat: 47.4019, lon: -121.4248 },
       // Alpental Top Station, 5,420 ft (operator trail map).
-      { key: 'summit', label: 'Alpental top', elevation: 1652, lat: 47.4388, lon: -121.4428 },
+      { key: 'summit', label: 'Alpental top', inText: 'Alpental top', elevation: 1652, lat: 47.4388, lon: -121.4428 },
     ],
     models: [...GLOBAL, 'ncep_hrrr_conus', 'gem_hrdps_continental'],
     links: [
@@ -141,3 +143,5 @@ export const RESORTS: Resort[] = [
 ];
 
 export const resortById = (id: string) => RESORTS.find((r) => r.id === id);
+
+export const bandInText = (b: Pick<Band, 'label' | 'inText'>) => b.inText ?? b.label.toLowerCase();

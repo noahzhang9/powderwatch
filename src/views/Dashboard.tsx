@@ -114,9 +114,9 @@ function ResortCard({ resort }: { resort: Resort }) {
   const gap = o ? midBand(resort).elevation - o.station.elevation : 0;
   return (
     <div className="card p-4">
-      <div className="flex items-baseline justify-between gap-2">
+      <div className="flex flex-wrap items-baseline justify-between gap-x-2">
         <h2 className="text-lg font-semibold"><a href={href('resort', resort.id)} className="hover:underline">{resort.name}</a></h2>
-        <span className="text-xs text-ink-3">{resort.region}</span>
+        <span className="text-xs text-ink-3 whitespace-nowrap">{resort.region}</span>
       </div>
 
       <div className="mt-3">
