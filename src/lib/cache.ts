@@ -8,6 +8,9 @@
  * Snapshot-only builds (VITE_SNAPSHOT_ONLY=1, `npm run preview:local`) never
  * call Open-Meteo: they use snapshot copies of any age, and anything not in
  * the snapshot fails with NotInSnapshotError, which views show inline.
+ *
+ * A request made with `{ live: false }` never calls Open-Meteo in any build:
+ * it is for heavy requests a view can do without (see CacheOpts).
  */
 
 const DB_NAME = 'powderwatch';
@@ -232,6 +235,27 @@ export class NotInSnapshotError extends Error {
 
 export const isNotInSnapshot = (err: unknown): err is NotInSnapshotError => err instanceof NotInSnapshotError;
 
+/** A `{ live: false }` request with no copy young enough (normal builds); the caller shows what it has instead. */
+export class NoFreshCopyError extends Error {
+  readonly url: string;
+  constructor(url: string) {
+    super('No snapshot copy young enough, and this request is never made live');
+    this.name = 'NoFreshCopyError';
+    this.url = url;
+  }
+}
+
+export interface CacheOpts {
+  /**
+   * `false`: never call Open-Meteo. The request takes the copy a normal request would take from the cache or a
+   * fresh snapshot, or else a copy this browser already holds that is younger than SNAPSHOT_MAX_AGE_S, the same
+   * freshness rule as the snapshot's. Without one it rejects with NoFreshCopyError (in a snapshot-only build, as
+   * usual there: a copy of any age, otherwise NotInSnapshotError). For heavy requests a view can do without: the
+   * dashboard's ensembles, which the Storm tracker would fetch live once the snapshot is stale.
+   */
+  live?: boolean;
+}
+
 /** The manifest's own timestamp (when the job started), if it is a plausible unix time. */
 export function manifestGeneratedAt(x: unknown): number | null {
   const t = (x as Partial<SnapshotManifest> | null)?.generatedAt;
@@ -341,12 +365,17 @@ async function fetchLive<T>(url: string): Promise<T> {
  *
  * Snapshot-only builds treat every snapshot copy as fresh and replace the
  * Open-Meteo call with a NotInSnapshotError (after any older cached copy).
+ * `{ live: false }` replaces it with a cached copy younger than
+ * SNAPSHOT_MAX_AGE_S, or a NoFreshCopyError.
  */
-export async function cachedJson<T>(url: string, ttlSec: number, priority: Priority = 'high'): Promise<T> {
+export async function cachedJson<T>(url: string, ttlSec: number, priority: Priority = 'high', opts: CacheOpts = {}): Promise<T> {
   const now = Date.now() / 1000;
+  const live = opts.live !== false;
   const m = mem.get(url);
   if (m && now - m.t < ttlSec) return m.data as T;
-  const pending = inflight.get(url);
+  // A request that may go live never waits on one that may not (it would inherit its NoFreshCopyError).
+  const flightKey = live ? url : `no-live ${url}`;
+  const pending = inflight.get(flightKey);
   if (pending) return pending as Promise<T>;
 
   const p = (async () => {
@@ -384,6 +413,11 @@ export async function cachedJson<T>(url: string, ttlSec: number, priority: Prior
       if (stored) return keep(stored);
       throw new NotInSnapshotError(url);
     }
+    if (!live) {
+      // Never call Open-Meteo: a copy this browser fetched recently enough (e.g. the Storm tracker's), or nothing.
+      if (stored && now - stored.t < SNAPSHOT_MAX_AGE_S) return keep(stored);
+      throw new NoFreshCopyError(url);
+    }
 
     try {
       const data = await withSlot(priority, () => fetchLive<T>(url));
@@ -401,10 +435,10 @@ export async function cachedJson<T>(url: string, ttlSec: number, priority: Prior
       throw err;
     }
   })();
-  inflight.set(url, p);
+  inflight.set(flightKey, p);
   try {
     return await p;
   } finally {
-    inflight.delete(url);
+    inflight.delete(flightKey);
   }
 }

@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
-  MANIFEST_RETRY_MS, NOT_IN_SNAPSHOT, NotInSnapshotError, SNAPSHOT_INTERVAL_H, SNAPSHOT_MAX_AGE_S, cachedJson, clearCache, isSnapshotOnly, manifestGeneratedAt,
-  parseManifest, snapshotInfo, snapshotIsFresh, snapshotUse, type SnapshotEntry,
+  MANIFEST_RETRY_MS, NOT_IN_SNAPSHOT, NoFreshCopyError, NotInSnapshotError, SNAPSHOT_INTERVAL_H, SNAPSHOT_MAX_AGE_S, cachedJson, clearCache,
+  isSnapshotOnly, manifestGeneratedAt, parseManifest, snapshotInfo, snapshotIsFresh, snapshotUse, type SnapshotEntry,
 } from './cache';
 
 const NOW = Date.parse('2026-11-19T22:30:00Z');
@@ -185,6 +185,59 @@ describe('cachedJson with a forecast snapshot', () => {
     const p = cachedJson(A, TTL).catch((e: Error) => e);
     await vi.advanceTimersByTimeAsync(60_000);
     expect(String(await p)).toContain('429');
+  });
+});
+
+describe('cachedJson with { live: false }', () => {
+  const noLive = { live: false };
+
+  it('serves a fresh snapshot copy, like any request', async () => {
+    serve({ manifest: manifest({ [A]: { file: FILE_A, fetchedAt: NOW_S - 2 * 3600 } }), files: { [FILE_A]: { snap: 'a' } } });
+    expect(await cachedJson(A, TTL, 'low', noLive)).toEqual({ snap: 'a' });
+    expect(live()).toHaveLength(0);
+  });
+
+  it('rejects with NoFreshCopyError instead of calling Open-Meteo', async () => {
+    const cases: Site[] = [
+      { manifest: manifest({ [A]: { file: FILE_A, fetchedAt: NOW_S - SNAPSHOT_MAX_AGE_S } }), files: { [FILE_A]: { snap: 'stale' } } },
+      { manifest: manifest({ [B]: { file: FILE_B, fetchedAt: NOW_S } }), files: { [FILE_B]: { snap: 'b' } } },
+      { manifest: manifest({ [A]: { file: FILE_A, fetchedAt: NOW_S - 60 } }), files: {} },
+      {},
+    ];
+    for (const site of cases) {
+      await clearCache();
+      serve(site);
+      const err = await cachedJson(A, TTL, 'low', noLive).catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(NoFreshCopyError);
+      expect((err as NoFreshCopyError).url).toBe(A);
+    }
+    expect(live()).toHaveLength(0);
+  });
+
+  it("uses this browser's own copy while it is younger than the snapshot's freshness limit", async () => {
+    serve({}); // no snapshot: a normal request goes live and keeps the answer
+    expect(await cachedJson(A, TTL)).toEqual({ live: A });
+    vi.setSystemTime(NOW + (SNAPSHOT_MAX_AGE_S - 60) * 1000);
+    expect(await cachedJson(A, TTL, 'low', noLive)).toEqual({ live: A });
+    vi.setSystemTime(NOW + SNAPSHOT_MAX_AGE_S * 1000);
+    await expect(cachedJson(A, TTL, 'low', noLive)).rejects.toBeInstanceOf(NoFreshCopyError);
+    expect(live()).toHaveLength(1);
+  });
+
+  it('never makes a concurrent normal request inherit its rejection', async () => {
+    serve({ manifest: manifest({ [A]: { file: FILE_A, fetchedAt: NOW_S - SNAPSHOT_MAX_AGE_S - 60 } }), files: { [FILE_A]: { snap: 'stale' } } });
+    const [cached, normal] = await Promise.allSettled([cachedJson(A, TTL, 'low', noLive), cachedJson(A, TTL)]);
+    expect(cached.status === 'rejected' && cached.reason).toBeInstanceOf(NoFreshCopyError);
+    expect(normal).toEqual({ status: 'fulfilled', value: { live: A } });
+    expect(live()).toHaveLength(1);
+  });
+
+  it('in a snapshot-only build, takes a copy of any age or rejects with NotInSnapshotError', async () => {
+    vi.stubEnv('VITE_SNAPSHOT_ONLY', '1');
+    serve({ manifest: manifest({ [A]: { file: FILE_A, fetchedAt: NOW_S - 3 * 86400 } }), files: { [FILE_A]: { snap: 'old' } } });
+    expect(await cachedJson(A, TTL, 'low', noLive)).toEqual({ snap: 'old' });
+    await expect(cachedJson(B, TTL, 'low', noLive)).rejects.toBeInstanceOf(NotInSnapshotError);
+    expect(live()).toHaveLength(0);
   });
 });
 
