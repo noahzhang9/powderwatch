@@ -29,6 +29,14 @@ export function ResortView({ resort, tab }: { resort: Resort; tab?: string }) {
           ))}
         </div>
       </details>
+      {resort.note && (
+        <p className="text-xs text-ink-2 mt-1.5">
+          {resort.note.text}{' '}
+          <a href={resort.note.link.url} target="_blank" rel="noreferrer" className="underline decoration-[var(--axis)] hover:text-ink">
+            {resort.note.link.label} ↗
+          </a>
+        </p>
+      )}
       {/* A tab bar on its own rule, so the views read as tabs, distinct from the band and view toggles below. */}
       <nav className="mt-3 flex border-b border-line" aria-label="Views">
         {TABS.map((t) => (

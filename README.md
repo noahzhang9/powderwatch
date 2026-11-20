@@ -1,7 +1,7 @@
 # PowderWatch
 
 Personal ski-forecast and snowpack dashboard for Crystal Mountain, Snoqualmie / Alpental, Stevens Pass,
-Whistler Blackcomb and Verbier.
+Whistler Blackcomb, Verbier and Niseko United.
 It compares deterministic models, regional high-res models and ensembles from
 [Open-Meteo](https://open-meteo.com/), runs them all through one set of snow physics, and tracks
 station snow depth against each station's own history, with an ensemble-driven snowpack projection.
@@ -102,7 +102,7 @@ appears once the last scheduled update is more than 8 hours old.
     under the free tier's per-minute limit, retries 429/5xx with backoff, and logs requests, bytes
     and Open-Meteo's weighted call cost (`X-RateLimit-Cost`). Each run has a budget of 1,250
     weighted calls (`SNAPSHOT_MAX_COST`), raised when needed to fit the first screens, so the six
-    scheduled runs use about 7,400–7,700 of the free tier's 10,000 a day and leave room for a push
+    scheduled runs use about 8,000 of the free tier's 10,000 a day and leave room for a push
     or manual run. Lower-priority groups are skipped when the budget runs out. A failed or partial
     snapshot never blocks the deploy; the browser fetches whatever is missing.
   - The same run reads NOAA/NWS WPC's winter chances for the US resorts (`scripts/fetch-wpc.ts`)

@@ -25,11 +25,10 @@ describe('model catalogue', () => {
 
   it('names the forecast centres of the models the resorts show, and no others', () => {
     const shown = RESORTS.flatMap((r) => r.models);
-    expect(centresOf(shown)).toEqual(['ECMWF', 'NOAA', 'ECCC', 'DWD', 'UK Met Office', 'MeteoSwiss']);
-    expect(new Intl.ListFormat('en-GB').format(centresOf(shown))).toBe('ECMWF, NOAA, ECCC, DWD, UK Met Office and MeteoSwiss');
-    // JMA joins the list only once a resort shows one of its models.
-    expect(shown.some((id) => MODELS[id].family === 'JMA')).toBe(false);
-    expect(centresOf([...shown, 'jma_gsm'])).toEqual(['ECMWF', 'NOAA', 'ECCC', 'DWD', 'UK Met Office', 'MeteoSwiss', 'JMA']);
+    expect(centresOf(shown)).toEqual(['ECMWF', 'NOAA', 'ECCC', 'DWD', 'UK Met Office', 'MeteoSwiss', 'JMA']);
+    expect(new Intl.ListFormat('en-GB').format(centresOf(shown))).toBe('ECMWF, NOAA, ECCC, DWD, UK Met Office, MeteoSwiss and JMA');
+    // A centre is named only while some resort shows one of its models (JMA: Niseko).
+    expect(centresOf(shown.filter((id) => MODELS[id].family !== 'JMA'))).not.toContain('JMA');
   });
 
   it("gives JMA's models their published range, runs and grids", () => {

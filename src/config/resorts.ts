@@ -33,6 +33,8 @@ export interface Resort {
    * "Compare with official guidance".
    */
   officialGuidance?: boolean;
+  /** One muted line under the resort's links, e.g. where the official forecasts and warnings are. */
+  note?: { text: string; link: Link };
 }
 
 const GLOBAL = ['ecmwf_ifs025', 'gfs_global', 'gem_global', 'icon_global', 'ecmwf_aifs025_single', 'ukmo_global_deterministic_10km'];
@@ -147,6 +149,33 @@ export const RESORTS: Resort[] = [
       { label: 'SLF avalanche bulletin', url: 'https://www.slf.ch/en/avalanche-bulletin-and-snow-situation/' },
       { label: 'MeteoSwiss', url: 'https://www.meteoswiss.admin.ch/' },
     ],
+  },
+  {
+    // Niseko United: four areas on Mt Niseko Annupuri (1,308 m) that the global models can't tell apart,
+    // so one resort, as with Snoqualmie / Alpental. The bands sit on Grand Hirafu (OpenStreetMap lift lines):
+    // the base at the bottom of the Ace Family Quad (260 m), mid at the top of the Ace Gondola (813 m),
+    // and the summit band at the top of King Lift #4 (1,200 m).
+    id: 'niseko',
+    name: 'Niseko United',
+    short: 'Niseko',
+    region: 'Hokkaido',
+    tz: 'Asia/Tokyo',
+    bands: [
+      { key: 'base', label: 'Base', elevation: 260, lat: 42.8583, lon: 140.702 },
+      { key: 'mid', label: 'Mid', elevation: 813, lat: 42.8678, lon: 140.6801 },
+      { key: 'summit', label: 'Upper', elevation: 1200, lat: 42.8717, lon: 140.6625 },
+    ],
+    models: [...GLOBAL, 'jma_gsm', 'jma_msm'],
+    links: [
+      { label: 'Niseko weather & snow', url: 'https://www.niseko.ne.jp/en/weather/' },
+      { label: 'Grand Hirafu live cams', url: 'https://en.grand-hirafu.jp/livecam/' },
+      { label: 'Niseko Avalanche Institute', url: 'https://nadare.info/' },
+    ],
+    // Japan's Meteorological Service Act licenses public forecasts and reserves warnings to JMA: say this is model output.
+    note: {
+      text: 'Model output, not an official forecast. Official forecasts and warnings:',
+      link: { label: 'Japan Meteorological Agency', url: 'https://www.jma.go.jp/bosai/forecast/#area_type=offices&area_code=016000' },
+    },
   },
 ];
 

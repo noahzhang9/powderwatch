@@ -14,6 +14,11 @@ import { BEST_DAY_MIN_CM, GRID_DAYS, NARROW_GRID_DAYS } from './Dashboard';
 
 /** The models some resort shows: the catalogue may hold more, which the page doesn't mention. */
 const SHOWN = RESORTS.flatMap((r) => r.models);
+/** The resolution range of the global models the resorts show, km. */
+const globalKm = (() => {
+  const km = Array.from(new Set(SHOWN)).map((id) => MODELS[id]).filter((m) => m?.kind === 'global').map((m) => m.resolutionKm);
+  return [Math.min(...km), Math.max(...km)];
+})();
 
 export function About() {
   const fmt = useFmt();
@@ -227,7 +232,7 @@ export function About() {
 
       <h2>Known limits</h2>
       <ul className="list-disc pl-5">
-        <li>Global models (9–25 km) smooth the terrain; their precipitation at a specific resort can be badly biased. Local verification is the only fix.</li>
+        <li>Global models ({globalKm[0]}–{globalKm[1]} km) smooth the terrain; their precipitation at a specific resort can be badly biased. Local verification is the only fix.</li>
         <li>
           Snowpack settling is calibrated on three Cascade SNOTEL stations: given the observed water input, the 10-day depth error is about 18 cm RMSE
           (persistence: 40 cm). Real projections add precipitation-forecast error on top, and the calibration is not yet checked for BC or the Alps.
