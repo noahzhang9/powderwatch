@@ -51,12 +51,12 @@ export function App() {
                 // Switching resorts keeps the current tab and view settings.
                 href={`${href('resort', r.id, tab?.id ?? 'storm')}${qs ? `?${qs}` : ''}`}
                 aria-current={resort?.id === r.id ? 'page' : undefined}
-                className={resort?.id === r.id ? 'text-ink font-semibold' : 'hover:text-ink'}
+                className={`underline-offset-[6px] decoration-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent rounded-sm ${resort?.id === r.id ? 'text-ink font-semibold underline' : 'hover:text-ink hover:underline decoration-[var(--axis)]'}`}
               >
                 {r.short}
               </a>
             ))}
-            <a href={href('about')} aria-current={parts[0] === 'about' ? 'page' : undefined} className={parts[0] === 'about' ? 'text-ink font-semibold' : 'hover:text-ink'}>
+            <a href={href('about')} aria-current={parts[0] === 'about' ? 'page' : undefined} className={`underline-offset-[6px] decoration-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent rounded-sm ${parts[0] === 'about' ? 'text-ink font-semibold underline' : 'hover:text-ink hover:underline decoration-[var(--axis)]'}`}>
               Methods
             </a>
           </nav>
