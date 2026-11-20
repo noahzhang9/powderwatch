@@ -29,10 +29,12 @@ export interface BandForecast {
   missing: string[];
 }
 
-function buildBandForecast(resort: Resort, surface: SurfaceHourly[], profiles?: Profiles): BandForecast {
+/** Null when no model has data at the point (nothing to blend). */
+export function buildBandForecast(resort: Resort, surface: SurfaceHourly[], profiles?: Profiles): BandForecast | null {
   const usable = surface.filter(hasData);
   const models = usable.map((x) => deriveModel(x, profiles));
-  const b = blend(models)!;
+  const b = blend(models);
+  if (!b) return null;
   const daily: Record<string, DailyRow[]> = {};
   for (const m of models) daily[m.model.id] = toDaily(m, resort.tz);
   return {
@@ -59,11 +61,19 @@ export function loadProfiles(resort: Resort) {
 export function useBandForecast(resort: Resort, band: Band) {
   const surface = useAsync(() => loadBandSurface(resort, band), [resort.id, band.key]);
   const profiles = useAsync(() => loadProfiles(resort), [resort.id]);
-  const data = useMemo(
+  const built = useMemo(
     () => (surface.data ? buildBandForecast(resort, surface.data, profiles.data) : undefined),
     [surface.data, profiles.data, resort],
   );
-  return { data, error: surface.error, loading: surface.loading, retry: surface.retry, levelsPending: !profiles.data && !profiles.error };
+  // A response in which no model has data shows as a failed request (with Retry), not a crash.
+  const empty = useMemo(() => (built === null ? new Error('no model returned data at this point') : undefined), [built]);
+  return {
+    data: built ?? undefined,
+    error: surface.error ?? empty,
+    loading: surface.loading,
+    retry: surface.retry,
+    levelsPending: !profiles.data && !profiles.error,
+  };
 }
 
 export interface EnsembleSet {
