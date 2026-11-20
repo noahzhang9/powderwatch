@@ -29,7 +29,7 @@ export interface StationDef {
   caveat?: string;
   /**
    * A model estimate, not a measurement (SNODAS). Modelled points are never a default station, the dashboard
-   * headline or the Storm tracker's last 7 days, and the UI labels every value from them "modelled".
+   * headline or the Forecast tab's last 7 days, and the UI labels every value from them "modelled".
    */
   modelled?: boolean;
   /** The point as it reads mid-sentence ("at Crystal mid-mountain"); modelled points only. */

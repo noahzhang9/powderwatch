@@ -5,7 +5,7 @@ import { HistoryView } from './HistoryView';
 import { SnowpackView } from './SnowpackView';
 
 export const TABS = [
-  { id: 'storm', label: 'Storm tracker' },
+  { id: 'storm', label: 'Forecast' },
   { id: 'history', label: 'Run history' },
   { id: 'snowpack', label: 'Snowpack' },
 ] as const;

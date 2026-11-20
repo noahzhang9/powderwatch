@@ -6,7 +6,7 @@ It compares deterministic models, regional high-res models and ensembles from
 [Open-Meteo](https://open-meteo.com/), runs them all through one set of snow physics, and tracks
 station snow depth against each station's own history, with an ensemble-driven snowpack projection.
 At the US resorts, "Compare with official guidance" adds NOAA's own products as opt-in benchmarks:
-the National Blend of Models' snowfall on the Storm tracker's daily chart, and the Weather
+the National Blend of Models' snowfall on the Forecast tab's daily chart, and the Weather
 Prediction Center's Day 1–3 chances of heavy snow. Their Snowpack tabs also offer NOAA NOHRSC
 SNODAS, a modelled snow depth and SWE at each of the resort's own bands, as extra choices beside the
 measurement stations.

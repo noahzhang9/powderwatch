@@ -49,7 +49,7 @@ export function About() {
           High-resolution regional models resolve terrain and the timing of showers better than the global models, but run only a day or two
           ahead, so later days rest on the global models. They join the blend only within their range (
           {Object.values(MODELS).filter((m) => m.kind === 'regional').map((m) => `${m.label} ${horizonText(m.horizonH)}`).join(', ')}). On the
-          Storm tracker their mark is a diamond, and their model pill shows that range.
+          Forecast tab their mark is a diamond, and their model pill shows that range.
         </li>
         <li>Official guidance (below) is never part of the blend.</li>
         <li>Ensembles: {ENSEMBLES.map((e) => `${e.label} (${e.members})`).join(', ')}. Centres are weighted equally, members equally within a centre. Probabilities are model spread until verified against observations.</li>
@@ -137,7 +137,7 @@ export function About() {
       <ul className="list-disc pl-5">
         <li>
           A scheduled job refreshes station observations and a forecast snapshot every {SNAPSHOT_INTERVAL_H} hours ({24 / SNAPSHOT_INTERVAL_H} times a day). With the
-          snapshot, the dashboard, the Storm tracker at mid-mountain, the last 7 days and each resort's default Snowpack station need no direct calls to Open-Meteo.
+          snapshot, the dashboard, the Forecast tab at mid-mountain, the last 7 days and each resort's default Snowpack station need no direct calls to Open-Meteo.
         </li>
         <li>
           The same job adds each new SNODAS day (NSIDC posts it around 14:00 UTC), so the modelled points lag by up to a day. A snapshot copy is used until it is {SNAPSHOT_MAX_AGE_S / 3600} hours old. Past that, and for what the snapshot leaves out (Run history, base and summit
@@ -145,14 +145,14 @@ export function About() {
         </li>
         <li>
           The dashboard's ensembles are the exception: it never asks Open-Meteo for them. Its 7-day figure is the ensemble median from a snapshot (or
-          cached) copy under {SNAPSHOT_MAX_AGE_S / 3600} hours old, the copy the Storm tracker would use, and otherwise the blend, labelled "blend".
+          cached) copy under {SNAPSHOT_MAX_AGE_S / 3600} hours old, the copy the Forecast tab would use, and otherwise the blend, labelled "blend".
         </li>
       </ul>
 
       <h2>Official guidance (US resorts)</h2>
       <ul className="list-disc pl-5">
         <li>
-          "Compare with official guidance" on the Storm tracker adds NOAA's own products as benchmarks. They are shown as NOAA publishes them, not run
+          "Compare with official guidance" on the Forecast tab adds NOAA's own products as benchmarks. They are shown as NOAA publishes them, not run
           through the physics above, because their calibration is the point; they never join the blend, the centre counts or any total.
         </li>
         <li>

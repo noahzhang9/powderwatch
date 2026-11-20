@@ -33,7 +33,7 @@ interface RunResult {
 export function HistoryView({ resort }: { resort: Resort }) {
   const fmt = useFmt();
   const [bandKey, setBandKey] = useHashParam<BandKey>('band', 'mid', ['base', 'mid', 'summit']);
-  // Supporting charts (same data, no extra requests) sit under "More detail", as on the Storm tracker.
+  // Supporting charts (same data, no extra requests) sit under "More detail", as on the Forecast tab.
   const [more, setMore] = useHashParam<'0' | '1'>('more', '0', ['0', '1']);
   const band = resort.bands.find((b) => b.key === bandKey)!;
   const available = HISTORY_MODELS.filter((m) => resort.models.includes(m));

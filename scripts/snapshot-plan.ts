@@ -21,7 +21,7 @@ import { localDate } from '../src/lib/time';
 /** Lower runs first and is the last to be dropped when the budget runs out. */
 export const PRIORITY = {
   meta: 0,
-  /** Dashboard and the storm tracker's first paint: mid-band surface + pressure profile. */
+  /** Dashboard and the Forecast tab's first paint: mid-band surface + pressure profile. */
   firstPaint: 1,
   otherBands: 2,
   midEnsembles: 3,
@@ -40,7 +40,7 @@ export const PRIORITY = {
 /**
  * Groups up to this priority are what a visit sees first (every band's forecast, mid ensembles, run change,
  * the default Snowpack station) or one click away (NBM behind "Compare with official guidance", last 7 days
- * under the Storm tracker's "More detail").
+ * under the Forecast tab's "More detail").
  * A run's budget grows to fit them (see runBudget).
  */
 export const FIRST_SCREENS = PRIORITY.snowpackDefaultNextDay;
@@ -75,11 +75,11 @@ export interface PlanInput {
   resorts?: Resort[];
 }
 
-/** Every run-metadata id a view requests (storm tracker: all models, and NBM's with official guidance on; run history: a subset). */
+/** Every run-metadata id a view requests (Forecast tab: all models, and NBM's with official guidance on; run history: a subset). */
 export const metaIdsFor = (resorts: Resort[] = RESORTS) =>
   [...new Set([...resorts.flatMap((r) => r.models.map(metaIdOf)), ...(resorts.some((r) => r.officialGuidance) ? [NBM.metaId] : [])])];
 
-/** The storm tracker's surface request at mid-mountain (its default band). */
+/** The Forecast tab's surface request at mid-mountain (its default band). */
 export const midSurfaceUrl = (r: Resort) => surfaceUrl(pointOf(midBand(r)), r.models, r.tz);
 
 /**

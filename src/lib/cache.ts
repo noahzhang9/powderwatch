@@ -268,7 +268,7 @@ export interface CacheOpts {
    * fresh snapshot, or else a copy this browser already holds that is younger than SNAPSHOT_MAX_AGE_S, the same
    * freshness rule as the snapshot's. Without one it rejects with NoFreshCopyError (in a snapshot-only build, as
    * usual there: a copy of any age, otherwise NotInSnapshotError). For heavy requests a view can do without: the
-   * dashboard's ensembles, which the Storm tracker would fetch live once the snapshot is stale.
+   * dashboard's ensembles, which the Forecast tab would fetch live once the snapshot is stale.
    */
   live?: boolean;
 }
@@ -431,7 +431,7 @@ export async function cachedJson<T>(url: string, ttlSec: number, priority: Prior
       throw new NotInSnapshotError(url);
     }
     if (!live) {
-      // Never call Open-Meteo: a copy this browser fetched recently enough (e.g. the Storm tracker's), or nothing.
+      // Never call Open-Meteo: a copy this browser fetched recently enough (e.g. the Forecast tab's), or nothing.
       if (stored && now - stored.t < SNAPSHOT_MAX_AGE_S) return keep(stored);
       throw new NoFreshCopyError(url);
     }

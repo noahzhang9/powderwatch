@@ -35,7 +35,7 @@ export const pointOf = (p: { lat: number; lon: number; elevation: number }): Poi
 
 /**
  * Mid-mountain band, the most representative elevation for a ski day: used by the dashboard,
- * the where-and-when grid and trips, the storm tracker's default, and the pressure-profile point.
+ * the where-and-when grid and trips, the Forecast tab's default, and the pressure-profile point.
  */
 export const midBand = (r: Resort): Band => r.bands.find((b) => b.key === 'mid') ?? r.bands[0];
 

@@ -111,7 +111,7 @@ export function useEnsembles(pt: Point | null, tz: string, enabled = true, pastD
 }
 
 /**
- * The dashboard's ensembles: the Storm tracker's at mid-mountain (the same URLs, which the snapshot holds), read
+ * The dashboard's ensembles: the Forecast tab's at mid-mountain (the same URLs, which the snapshot holds), read
  * from the cache or a fresh snapshot only. Live they would cost about 30 heavy calls a visit whenever the
  * snapshot is stale; the dashboard shows the blend then.
  */

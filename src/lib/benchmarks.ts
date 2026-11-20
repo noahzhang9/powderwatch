@@ -1,5 +1,5 @@
 /**
- * Official guidance shown as benchmarks behind the Storm tracker's "Compare with official guidance"
+ * Official guidance shown as benchmarks behind the Forecast tab's "Compare with official guidance"
  * toggle: the provider's own product, never run through PowderWatch physics and never blended.
  */
 import { toDaily, type DailyRow } from './forecast';

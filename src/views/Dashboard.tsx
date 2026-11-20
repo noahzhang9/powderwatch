@@ -85,7 +85,7 @@ export const BEST_DAY_MIN_CM = 2.5;
 
 /**
  * Index of the ★ best day among the grid's days, shared by the grid and the cards: the snowiest day that reaches
- * BEST_DAY_MIN_CM and whose total doesn't rest on one model (drivenDays, the Storm tracker's "outlier" flag).
+ * BEST_DAY_MIN_CM and whose total doesn't rest on one model (drivenDays, the Forecast tab's "outlier" flag).
  */
 function bestDayIndex(days: DailyRow[], driven: Map<string, DrivenDay>): number | null {
   let best: number | null = null;
@@ -163,7 +163,7 @@ function ResortCard({ resort }: { resort: Resort }) {
                 ? <>★ Best day: <b className="text-ink">{best.date === today ? 'today' : dayLabel(best.date)}</b>, {fmt.snow(best.snowCm)}</>
                 : `No day with ${fmt.snow(BEST_DAY_MIN_CM, 1)} or more in the next ${nDays} days`}
             </div>
-            <a href={href('resort', resort.id)} className="text-xs underline text-ink-2 mt-2 inline-block">Storm tracker →</a>
+            <a href={href('resort', resort.id)} className="text-xs underline text-ink-2 mt-2 inline-block">Forecast →</a>
           </>
         )}
       </div>
@@ -188,7 +188,7 @@ function Total({ value, label, spread, delta, fmt, title }: {
 /** The blend's total over the next `hours`, with the range of the models that cover the window. */
 function BlendTotal({ resort, data, now, hours, fmt, title }: { resort: Resort; data: BandForecast; now: number; hours: number; fmt: Fmt; title?: string }) {
   const s = windowStats(data, now, hours);
-  const key = `${resort.id}:mid:${hours}`; // the Storm tracker's key for its blend total at mid
+  const key = `${resort.id}:mid:${hours}`; // the Forecast tab's key for its blend total at mid
   const delta = useSinceLastVisit({ [key]: s.total })[key];
   return (
     <Total
@@ -203,7 +203,7 @@ function BlendTotal({ resort, data, now, hours, fmt, title }: { resort: Resort; 
 }
 
 /**
- * The next 7 days lead with the ensemble median and its 10–90% range, the Storm tracker's figure at mid.
+ * The next 7 days lead with the ensemble median and its 10–90% range, the Forecast tab's figure at mid.
  * The ensembles come from the snapshot alone (loadDashboardEnsembles); without a fresh copy the card shows
  * the blend, labelled as such.
  */
@@ -295,7 +295,7 @@ function WhereWhenRow({ resort, nDays, fmt, narrow }: { resort: Resort; nDays: n
           return (
             <td
               key={d.date}
-              title={`${resort.short} ${d.date}: ${fmt.snow(snow)}${ph && ph !== 'snow' && ph !== 'dry' ? ` (${ph} at summit)` : ''}${low ? ` — fewer than ${LOW_CENTRES} forecast centres` : ''}${driven.has(d.date) ? ' — outlier: this total rests on one model (see the Storm tracker)' : ''}`}
+              title={`${resort.short} ${d.date}: ${fmt.snow(snow)}${ph && ph !== 'snow' && ph !== 'dry' ? ` (${ph} at summit)` : ''}${low ? ` — fewer than ${LOW_CENTRES} forecast centres` : ''}${driven.has(d.date) ? ' — outlier: this total rests on one model (see the Forecast tab)' : ''}`}
               className="text-center rounded-md tnum align-middle"
               style={{
                 minWidth: narrow ? 36 : 56, height: 40,

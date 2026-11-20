@@ -55,7 +55,7 @@ function stubNetwork() {
 }
 
 /**
- * Replays the views' requests: dashboard, storm tracker (mid band with "More detail" open and, where
+ * Replays the views' requests: dashboard, Forecast tab (mid band with "More detail" open and, where
  * offered, "Compare with official guidance" on, plus the deterministic forecast after switching band),
  * run history's run timing, snowpack at every station.
  */
@@ -135,7 +135,7 @@ describe('snapshot plan', () => {
   describe("the dashboard's ensembles", () => {
     const fileName = (i: number) => `${i.toString(16).padStart(16, '0')}-0000000000.json`;
 
-    it('are read from the snapshot alone: exactly the Storm tracker\'s mid ensembles in the plan, never live', async () => {
+    it('are read from the snapshot alone: exactly the Forecast tab\'s mid ensembles in the plan, never live', async () => {
       vi.setSystemTime(NOW_S * 1000);
       await clearCache();
       const plan = planSnapshot({ nowS: NOW_S, obs: obsFiles() });

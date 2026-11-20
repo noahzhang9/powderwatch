@@ -29,7 +29,7 @@ export interface Resort {
   models: string[];
   links: Link[];
   /**
-   * Inside NOAA's CONUS products (NBM, WPC winter probabilities): the Storm tracker offers
+   * Inside NOAA's CONUS products (NBM, WPC winter probabilities): the Forecast tab offers
    * "Compare with official guidance".
    */
   officialGuidance?: boolean;

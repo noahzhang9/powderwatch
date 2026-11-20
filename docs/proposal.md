@@ -60,7 +60,7 @@ These decisions shape everything below.
 
 ## 3. Core Features
 
-### Feature 1 — Multi-Model Storm Tracker *(implemented)*
+### Feature 1 — Multi-Model Forecast (the Forecast tab) *(implemented)*
 
 **Deterministic models per resort**
 
@@ -244,10 +244,10 @@ The same period's GFS runs read 74 → 20 → 14 → 0 → 25 cm. A storm vanish
 **Resort cards:**
 
 - station depth, % of median and percentile, labelled as a station, never as "base";
-- the next 3 days' blended snowfall with the model range, and the next 7 days' ensemble median with its 10–90% range (the Storm tracker's mid ensembles, read from the snapshot only; the blend, labelled, when it has no copy under 4.5 hours old), each with the change since your last visit;
+- the next 3 days' blended snowfall with the model range, and the next 7 days' ensemble median with its 10–90% range (the Forecast tab's mid ensembles, read from the snapshot only; the blend, labelled, when it has no copy under 4.5 hours old), each with the change since your last visit;
 - the best day, the one the Where & when grid stars.
 
-The day-by-day numbers live in the grid alone; the Storm tracker has the snow level and the last 7 days measured.
+The day-by-day numbers live in the grid alone; the Forecast tab has the snow level and the last 7 days measured.
 
 **Trips** (saved in browser localStorage only; above the cards once one is saved, a compact "+ Add trip" below them until then):
 
@@ -481,7 +481,7 @@ Next:
 
 **Success criteria (measurable):**
 
-- **Phase 1:** a user can tell from the Storm tracker in under 30 seconds whether models agree and whether precipitation is snow at the chosen band.
+- **Phase 1:** a user can tell from the Forecast tab in under 30 seconds whether models agree and whether precipitation is snow at the chosen band.
 - **Phase 3:** 10-day projected depth change has an RMSE below persistence on held-out seasons with *forecast* forcing (not only observed forcing).
 - **Phase 4:** at least one full season of archived forecasts. Blend MAE at least 10% better than the median single model at days 1–3, or the blend is changed.
 
@@ -506,7 +506,7 @@ Next:
   - **Schedule and budget:** six scheduled runs a day. Each run's budget is 1,250 calls (`SNAPSHOT_MAX_COST`, a sixth of 7,500), raised by `runBudget` to fit the first screens and never above 2,000. What is left after the first screens buys other stations' snowpack inputs. Planned total: about 7,500 calls a day (the plan's simulation of the six scheduled runs: 7,511, of which NBM is 18; a test keeps it under 9,000 with the first screens in every run). A push or manual run adds about 1,200–1,500, so one a day keeps the total under 10,000.
   - **One snapshot run** (measured 2026-11-20 01:53 UTC): 151 Open-Meteo requests, no retries or failures, 19.8 MB, 1,236.4 weighted calls (`X-RateLimit-Cost`, equal to the estimate), 184 s. First screens took 1,152.7 of those, NBM 3 of them; the rest bought one more station (Corral Pass), and eight lower-priority snowpack groups were skipped. WPC took 36 requests to NOAA; one failed after retries, a layer's distinct-times query, so no cell was left unknown. The verification record it wrote (cycle 2026-11-19T12Z, 11 points, 9 stations skipped) is 44.6 kB, 10.4 kB gzipped.
   - Full coverage would cost about 1,900–2,900 calls a run, mostly snowpack inputs at up to 15 stations (about 77–88 calls each, twice near a local midnight).
-  - **Visitors:** with a fresh snapshot, the dashboard, the Storm tracker at mid (including the lazy panels), the last 7 days and the default Snowpack station make no Open-Meteo calls. Live calls remain for Run history (about 40 small requests per cold load), base/summit ensembles (6 requests, about 97 calls), other snowpack stations (7 requests, about 80 calls), and anything once the snapshot is older than 4.5 h. These count against the visitor's own IP, not the job's. Live forecasts are cached for 30 minutes and past runs indefinitely.
+  - **Visitors:** with a fresh snapshot, the dashboard, the Forecast tab at mid (including the lazy panels), the last 7 days and the default Snowpack station make no Open-Meteo calls. Live calls remain for Run history (about 40 small requests per cold load), base/summit ensembles (6 requests, about 97 calls), other snowpack stations (7 requests, about 80 calls), and anything once the snapshot is older than 4.5 h. These count against the visitor's own IP, not the job's. Live forecasts are cached for 30 minutes and past runs indefinitely.
 - **NSIDC SNODAS:** one file of up to 35 MB a day from the scheduled job (each download stops once the depth and SWE members are in). The history backfill is about 6,300 files, 60–90 GB, in up to 23 runner jobs of a few minutes to two hours each, two at a time; public repositories don't pay for runner minutes. No key and no stated quota.
 - **NOAA WPC:** 36 requests a run to NOAA's ArcGIS service (9 distinct-times queries and 27 point queries), at most 3 at a time; no key and no stated quota.
 - **Single-provider risk:** all model forecast data comes through Open-Meteo. The fallback is NOAA NOMADS and ECMWF open data, which means GRIB processing on a server. That is out of scope unless Open-Meteo becomes unavailable.
@@ -545,7 +545,7 @@ Next:
 A responsive static web app with:
 
 1. **Dashboard** — resort cards and trips.
-2. **Storm tracker** — models, blend, freezing/snow level, temperature and ensembles.
+2. **Forecast tab** — models, blend, freezing/snow level, temperature and ensembles.
 3. **Run history** — how the forecast for a chosen window evolved, run by run.
 4. **Snowpack** — season chart against percentiles, with the ensemble projection and scenarios.
 5. **Methods** — the exact physics and parameters in use.
