@@ -67,7 +67,7 @@ export function About() {
         </li>
         <li>Totals of 7 days or more lead with the ensemble median and its 10–90% range. The multi-model blend is still shown, with a warning when it falls outside the range of the models that cover the whole window (late in the window fewer centres remain, so the blend can drift). When only one model reaches the end of a window, the blend there is that model, so the tile names it and gives its own total instead.</li>
         <li>Precipitation type per elevation: snow when the band is more than {fmt.elev(PHASE_BAND_M)} above the blended snow level during wet hours, rain when more than {fmt.elev(PHASE_BAND_M)} below, mixed otherwise.</li>
-        <li>Gusts are flagged at 40 mph (64 km/h) and above, where lift holds become likely. Dashboard: ★ marks each resort's snowiest day among those Where &amp; when shows ({GRID_DAYS}, or {NARROW_GRID_DAYS} on phones) if it brings at least {fmt.snow(BEST_DAY_MIN_CM, 1)}, and each card names it as the best day; model agreement compares the spread of 7-day totals with the blend (under 0.6 broad agreement, over 1.2 strong disagreement).</li>
+        <li>Gusts are flagged at 40 mph (64 km/h) and above, where lift holds become likely. Dashboard: ★ marks each resort's snowiest day among those Where &amp; when shows ({GRID_DAYS}, or {NARROW_GRID_DAYS} on phones) if it brings at least {fmt.snow(BEST_DAY_MIN_CM, 1)}, and each card names it as the best day.</li>
         <li>"Since your last visit" compares with what this browser showed at least 30 minutes earlier. "Change since the previous run" compares each global model's latest run with its run 12 hours earlier.</li>
       </ul>
 

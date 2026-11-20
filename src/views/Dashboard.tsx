@@ -72,13 +72,6 @@ function windowStats(data: BandForecast, from: number, hours: number) {
   return { total, min: per.length > 1 ? Math.min(...per) : null, max: per.length > 1 ? Math.max(...per) : null };
 }
 
-function agreement(total: number | null, min: number | null, max: number | null): string {
-  if (total == null || min == null || max == null) return '';
-  if (max < 5) return 'models agree: little snow';
-  const r = (max - min) / Math.max(total, 5);
-  return r < 0.6 ? 'models broadly agree' : r < 1.2 ? 'models disagree somewhat' : 'models disagree strongly';
-}
-
 /** The Where & when grid's days for a resort: today and the days after it, `nDays` in all. */
 const gridDays = (data: BandForecast, today: string, nDays: number) => data.blendDaily.filter((d) => d.date >= today).slice(0, nDays);
 
@@ -104,8 +97,6 @@ function ResortCard({ resort }: { resort: Resort }) {
   const days = data ? gridDays(data, today, nDays) : [];
   const bi = bestDayIndex(days);
   const best = bi == null ? null : days[bi];
-
-  const w7 = data ? windowStats(data, now, 168) : null;
   const o = obs.data;
   const thin = o?.clim && o.clim.seasons.length < 10;
   const gap = o ? midBand(resort).elevation - o.station.elevation : 0;
@@ -149,9 +140,6 @@ function ResortCard({ resort }: { resort: Resort }) {
               <WeekTotal resort={resort} data={data} ens={ens} now={now} fmt={fmt} />
             </div>
             <div className="text-xs text-ink-2 mt-2">
-              {w7 && `7-day: ${agreement(w7.total, w7.min, w7.max)}`}
-            </div>
-            <div className="text-xs text-ink-2 mt-1">
               {best
                 ? <>★ Best day: <b className="text-ink">{best.date === today ? 'today' : dayLabel(best.date)}</b>, {fmt.snow(best.snowCm)}</>
                 : `No day with ${fmt.snow(BEST_DAY_MIN_CM, 1)} or more in the next ${nDays} days`}
