@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
+import { useEffect, useId, useLayoutEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { useAsync } from '../hooks/useAsync';
 import { NOT_IN_SNAPSHOT, isNotInSnapshot, netStatus, snapshotAge, snapshotInfo, subscribeNet } from '../lib/cache';
 import { ago, nowUnix } from '../lib/time';
@@ -200,23 +200,85 @@ export function Disclosure({ label, hint, open, onToggle, children }: {
 }
 
 /** Legend + visibility toggle for a model; mirrors the line mark it controls. */
+/** How long the pointer rests on a model pill before its description opens, ms (the browser's own tooltip takes about a second). */
+const INFO_HOVER_MS = 150;
+/** After a tap (which also toggles the model), how long the description stays open, ms. */
+const INFO_TAP_MS = 3000;
+
 /**
  * A model's visibility toggle, keyed with the mark its chart draws: a line swatch by default, or the daily
- * chart's dot (global models) or diamond (high-res regional models), in the model's colour.
+ * chart's dot (global models) or diamond (high-res regional models), in the model's colour. `note` is short
+ * muted text after the name (a regional model's range). `info` (lines separated by "\n") opens as a small
+ * popover on hover, keyboard focus or a tap, and is the button's accessible description.
  */
-export function ModelChip({ color, label, on, onToggle, title, thick, mark = 'line' }: {
-  color: string; label: string; on: boolean; onToggle: () => void; title?: string; thick?: boolean; mark?: 'line' | 'dot' | 'diamond';
+export function ModelChip({ color, label, on, onToggle, title, thick, mark = 'line', note, info }: {
+  color: string; label: string; on: boolean; onToggle: () => void; title?: string; thick?: boolean;
+  mark?: 'line' | 'dot' | 'diamond'; note?: string; info?: string;
 }) {
+  const id = useId();
+  const [open, setOpen] = useState(false);
+  const [shift, setShift] = useState(0);
+  const timer = useRef<number | undefined>(undefined);
+  const tip = useRef<HTMLDivElement>(null);
+  const clear = () => window.clearTimeout(timer.current);
+  const openFor = (delay: number, closeAfter?: number) => {
+    clear();
+    timer.current = window.setTimeout(() => {
+      setOpen(true);
+      if (closeAfter) timer.current = window.setTimeout(() => setOpen(false), closeAfter);
+    }, delay);
+  };
+  const close = () => {
+    clear();
+    setOpen(false);
+  };
+  useEffect(() => clear, []);
+  // Keep the popover inside the viewport: shift it left when it would run off the right edge.
+  useLayoutEffect(() => {
+    if (!open || !tip.current) return setShift(0);
+    const over = tip.current.getBoundingClientRect().right - (window.innerWidth - 8);
+    setShift(over > 0 ? -over : 0);
+  }, [open]);
   const swatch = mark === 'dot'
     ? { width: 9, height: 9, borderRadius: '50%' }
     : mark === 'diamond'
       ? { width: 8, height: 8, transform: 'rotate(45deg)', margin: '0 1px' }
       : { width: 14, height: thick ? 3 : 2, borderRadius: 1 };
   return (
-    <button type="button" className="chip" aria-pressed={on} onClick={onToggle} title={title}>
-      <span aria-hidden style={{ ...swatch, background: color, display: 'inline-block', flex: 'none' }} />
-      {label}
-    </button>
+    <span
+      className="relative inline-flex"
+      onPointerEnter={(e) => info && e.pointerType !== 'touch' && openFor(INFO_HOVER_MS)}
+      onPointerLeave={(e) => e.pointerType !== 'touch' && close()}
+    >
+      <button
+        type="button"
+        className="chip"
+        aria-pressed={on}
+        onClick={onToggle}
+        onPointerUp={(e) => info && e.pointerType === 'touch' && openFor(0, INFO_TAP_MS)}
+        onFocus={(e) => info && e.currentTarget.matches(':focus-visible') && openFor(0)}
+        onBlur={close}
+        onKeyDown={(e) => e.key === 'Escape' && close()}
+        title={info ? undefined : title}
+        aria-describedby={info ? id : undefined}
+      >
+        <span aria-hidden style={{ ...swatch, background: color, display: 'inline-block', flex: 'none' }} />
+        {label}
+        {note && <span className="text-ink-3">· {note}</span>}
+      </button>
+      {info && (
+        <div
+          id={id}
+          role="tooltip"
+          ref={tip}
+          hidden={!open}
+          className="absolute left-0 top-full mt-1.5 z-30 w-max max-w-[260px] rounded-md border border-line bg-surface px-2.5 py-1.5 text-[11px] leading-snug text-ink-2 shadow-md"
+          style={shift ? { transform: `translateX(${shift}px)` } : undefined}
+        >
+          {info.split('\n').map((line, i) => <div key={i} className={i === 0 ? 'text-ink' : undefined}>{line}</div>)}
+        </div>
+      )}
+    </span>
   );
 }
 

@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState, type CSSProperties, type ReactNode } from 'react';
-import { MODELS, NBM } from '../config/models';
+import { MODELS, NBM, horizonText } from '../config/models';
 import type { Band, BandKey, Resort } from '../config/resorts';
 import { bandInText } from '../config/resorts';
 import { Chart, baseOption, tipHeader, tipRow, type EChartsCoreOption } from '../components/Chart';
@@ -82,9 +82,15 @@ export function StormView({ resort }: { resort: Resort }) {
             color={`var(--s${m.model.slot})`}
             label={m.model.label}
             mark={m.model.kind === 'regional' ? 'diamond' : 'dot'}
+            // Regional models run only a day or two ahead: say so on the pill, not only in the popover.
+            note={m.model.kind === 'regional' ? horizonText(m.model.horizonH) : undefined}
             on={!hidden.has(m.model.id)}
             onToggle={() => toggle(m.model.id)}
-            title={`${m.model.blurb}\n${m.model.kind === 'regional' ? 'High-res regional model' : 'Global model'}, ${m.model.resolutionKm} km${end ? ` · data to ${localHourLabel(end, resort.tz)}` : ''}\nFreezing level: ${m.fzlSource === 'model' ? 'model output' : m.fzlSource === 'computed' ? 'computed from pressure levels' : 'unavailable'}`}
+            info={[
+              m.model.blurb,
+              `${m.model.kind === 'regional' ? `High-res regional model, ${horizonText(m.model.horizonH)} range` : 'Global model'}, ${m.model.resolutionKm} km${end ? ` · data to ${localHourLabel(end, resort.tz)}` : ''}`,
+              `Freezing level: ${m.fzlSource === 'model' ? 'model output' : m.fzlSource === 'computed' ? 'computed from pressure levels' : 'unavailable'}`,
+            ].join('\n')}
           />
         );
       })}

@@ -60,7 +60,7 @@ export const MODELS: Record<string, ModelDef> = {
   ncep_hrrr_conus: {
     id: 'ncep_hrrr_conus', label: 'HRRR', family: 'NOAA', slot: 7, kind: 'regional', resolutionKm: 3, horizonH: 48,
     metaId: 'ncep_hrrr_conus', nativeFreezingLevel: true, historyRunsUtc: [0, 6, 12, 18],
-    blurb: 'NOAA 3 km convection-allowing model, hourly updates (48 h on 00/06/12/18Z).',
+    blurb: 'NOAA 3 km convection-allowing model, updated hourly; four runs a day reach 48 h, the others 18 h.',
   },
   gem_hrdps_continental: {
     id: 'gem_hrdps_continental', label: 'HRDPS', family: 'ECCC', slot: 8, kind: 'regional', resolutionKm: 2.5, horizonH: 48,
@@ -90,6 +90,9 @@ export interface EnsembleDef {
 }
 
 /** Ensembles via the Open-Meteo ensemble API (control + perturbed members). */
+/** A forecast range as the UI shows it: '48 h' up to three days, whole days beyond ('5 d'). */
+export const horizonText = (h: number) => (h < 72 ? `${h} h` : `${Math.round(h / 24)} d`);
+
 export const ENSEMBLES: EnsembleDef[] = [
   { id: 'ecmwf_ifs025', label: 'ECMWF ENS', family: 'ECMWF', slot: 1, members: 51, horizonH: 360, metaId: 'ecmwf_ifs025_ensemble' },
   { id: 'ecmwf_aifs025', label: 'AIFS ENS', family: 'ECMWF', slot: 5, members: 51, horizonH: 360, metaId: 'ecmwf_aifs025_ensemble' },
