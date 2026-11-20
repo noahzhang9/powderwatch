@@ -112,6 +112,15 @@ describe('SNODAS header', () => {
     expect(() => parseHeader(header().replace('Maximum x-axis coordinate: -120', 'Maximum x-axis coordinate: -119'))).toThrow(/edges/);
     expect(() => parseHeader(header().replace(/^Number of rows.*$/m, ''))).toThrow(/Number of rows/);
   });
+
+  it('reads the older v1.0 header, which has no slope or intercept (2017-03-23 to 04-03)', () => {
+    const v10 = header().replace('raster file v1.1', 'raster file v1.0').replace(/^Data (slope|intercept):.*\n/gm, '');
+    expect(parseHeader(v10)).toMatchObject({ slope: 1, intercept: 0, unitsDivisor: 1000, cols: 4, rows: 3 });
+    // A v1.1 header still needs both, and a v1.0 header that has one of them is read as written.
+    expect(() => parseHeader(header().replace(/^Data slope:.*\n/m, ''))).toThrow(/Data slope/);
+    const partial = header({ slope: 2 }).replace('raster file v1.1', 'raster file v1.0').replace(/^Data intercept:.*\n/m, '');
+    expect(() => parseHeader(partial)).toThrow(/Data intercept/);
+  });
 });
 
 describe('SNODAS cell indexing', () => {

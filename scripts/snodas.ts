@@ -13,6 +13,8 @@
  *    The grid shifted by 5% of a cell on 2013-10-01; reading each file's own header handles both eras.
  *  - `Data units: Meters / 1000.000000`, slope 1, intercept 0: integers are millimetres. -9999 is no data,
  *    and 32767 is a clipped value (SWE ≥ 32.767 m, an artefact at some high-elevation cells, §1.9.1).
+ *  - Some days carry the older `NOHRSC GIS/RS raster file v1.0` header (e.g. 2017-03-23 to 2017-04-03), which
+ *    has no `Data slope` / `Data intercept` lines; its integers are the same millimetres (slope 1, intercept 0).
  *
  * Nothing is written to disk: the tar is streamed, only the two products' members are kept in memory
  * (1–8 MB gzipped each), and their decompressed bytes are scanned once for the wanted cells and dropped.
@@ -75,6 +77,8 @@ export function parseHeader(text: string): SnodasGrid {
     return v;
   };
   if (str('Data type') !== 'integer' || num('Data bytes per pixel') !== 2) throw new SnodasFormatError('grid is not 2-byte integers');
+  // v1.0 headers predate the slope and intercept fields: they are absent (both, never one), meaning 1 and 0.
+  const v10 = /raster file v1\.0$/.test(h.get('Format version') ?? '') && !h.has('Data slope') && !h.has('Data intercept');
   const units = /^Meters\s*\/\s*([0-9.]+)$/.exec(str('Data units'));
   if (!units || !(Number(units[1]) > 0)) throw new SnodasFormatError(`unexpected units "${str('Data units')}"`);
   const g: SnodasGrid = {
@@ -85,8 +89,8 @@ export function parseHeader(text: string): SnodasGrid {
     dx: num('X-axis resolution'),
     dy: num('Y-axis resolution'),
     noData: num('No data value'),
-    slope: num('Data slope'),
-    intercept: num('Data intercept'),
+    slope: v10 ? 1 : num('Data slope'),
+    intercept: v10 ? 0 : num('Data intercept'),
     unitsDivisor: Number(units[1]),
     validUtc: '',
   };
