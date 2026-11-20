@@ -4,8 +4,13 @@
 # One-time setup: repo Settings → Pages → Source: "GitHub Actions";
 # Settings → Actions → General → Workflow permissions: "Read repository contents".
 #
+# GitHub's scheduler is best-effort (slots get dropped or delayed by hours), so an external cron
+# (cron-job.org, README "Reliable scheduling") also dispatches this workflow every 4 h. The gate job
+# skips a run when the deployed snapshot is under 2 h old, so a slot both triggers fire for spends the
+# Open-Meteo budget once.
+#
 # Jobs are split so third-party npm code never runs where a write-capable token exists:
-#   refresh (read-only, npm scripts disabled) → commit (write, no npm)
+#   gate (no token, no checkout, no npm) → refresh (read-only, npm scripts disabled) → commit (write, no npm)
 #   → build (read-only: test, build, forecast snapshot into dist/) → deploy (Pages only)
 #                                                                  → archive (write, no npm: verification
 #                                                                    record → data/verification branch)
@@ -17,7 +22,12 @@ on:
     - cron: '20 4,8,12,16,20 * * *' # 04:20, 08:20, … 20:20 UTC (off the top of the hour, when runs get delayed)
     - cron: '20 0 * * 1-6'          # 00:20 UTC, Monday to Saturday
     - cron: '20 0 * * 0'            # 00:20 UTC Sundays: full-history refresh (the mode step below matches this exact string)
-  workflow_dispatch:
+  workflow_dispatch: # also the external cron's trigger (README); incremental unless full_refresh is ticked
+    inputs:
+      full_refresh:
+        description: Full station-history refresh (otherwise the recent window only)
+        type: boolean
+        default: false
   push:
     branches: [main]
 
@@ -28,8 +38,56 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # Decides whether this run refreshes at all, and in which mode. Reads only the deployed site's public
+  # manifest; it checks out nothing and runs no npm code.
+  gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    permissions: {}
+    outputs:
+      run: ${{ steps.decide.outputs.run }}
+      full: ${{ steps.decide.outputs.full }}
+    steps:
+      - name: Skip if a recent snapshot is deployed; choose the refresh mode
+        id: decide
+        env:
+          EVENT: ${{ github.event_name }}
+          SCHEDULE: ${{ github.event.schedule }}
+          FULL_INPUT: ${{ inputs.full_refresh }}
+        run: |
+          # The decision logic is tested by scripts/workflow-gate.test.ts (it runs this script); keep the two in step.
+          now=${NOW_S:-$(date -u +%s)}
+          # The deployed site's manifest (https://<owner>.github.io/<repo>/), with a query string so the Pages CDN
+          # can't answer with its copy from before the run this one queued behind; the test points MANIFEST_URL at a file.
+          url=${MANIFEST_URL:-https://${GITHUB_REPOSITORY%%/*}.github.io/${GITHUB_REPOSITORY#*/}/data/fc/manifest.json?t=$now}
+          full=0
+          # Weekly full refresh: the Sunday schedule, or a dispatch (the external cron) on Sunday 00:00–00:59 UTC.
+          if [ "$FULL_INPUT" = "true" ] || [ "$SCHEDULE" = "20 0 * * 0" ]; then full=1; fi
+          if [ "$EVENT" = "workflow_dispatch" ] && [ "$(date -u -d "@$now" +%u%H)" = "700" ]; then full=1; fi
+          run=1
+          # Pushes and ticked full refreshes always run. Otherwise skip when the deployed snapshot is under 2 h
+          # old: the other trigger already ran this slot. A weekly full refresh is skipped only after another
+          # Sunday run (snapshot generated since Sunday 00:00 UTC), so a late Saturday run can't cancel it.
+          if [ "$EVENT" != "push" ] && [ "$FULL_INPUT" != "true" ]; then
+            generated=$(curl -fsS -m 20 --retry 2 -H 'Cache-Control: no-cache' "$url" 2>/dev/null \
+              | python3 -I -c 'import json, sys; v = json.load(sys.stdin).get("generatedAt"); print(int(v) if type(v) in (int, float) and v > 0 else "")' 2>/dev/null || true)
+            if [ -n "$generated" ]; then
+              age=$(( now - generated ))
+              sunday0=$(( now - (now % 86400) - ($(date -u -d "@$now" +%u) % 7) * 86400 ))
+              if [ "$age" -ge 0 ] && [ "$age" -lt 7200 ] && { [ "$full" = 0 ] || [ "$generated" -ge "$sunday0" ]; }; then
+                run=0
+                echo "deployed snapshot is $(( age / 60 )) min old: skipping this run"
+              fi
+            else
+              echo "no readable deployed manifest: running"
+            fi
+          fi
+          echo "run=$run" >> "$GITHUB_OUTPUT"
+          echo "full=$full" >> "$GITHUB_OUTPUT"
+
   refresh:
-    if: github.event_name != 'push'
+    needs: gate
+    if: github.event_name != 'push' && needs.gate.outputs.run == '1'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -43,15 +101,12 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci --ignore-scripts --registry=https://registry.npmjs.org
-      - name: Choose refresh mode (full history weekly or on manual runs, recent window otherwise)
+      - name: Refresh mode (full history weekly or when ticked, recent window otherwise; chosen by gate)
         id: mode
         env:
-          EVENT: ${{ github.event_name }}
-          SCHEDULE: ${{ github.event.schedule }}
+          FULL: ${{ needs.gate.outputs.full }}
         run: |
-          full=0
-          if [ "$EVENT" = "workflow_dispatch" ] || [ "$SCHEDULE" = "20 0 * * 0" ]; then full=1; fi
-          echo "FULL_REFRESH=$full" >> "$GITHUB_ENV"
+          if [ "$FULL" = "1" ]; then echo "FULL_REFRESH=1" >> "$GITHUB_ENV"; else echo "FULL_REFRESH=0" >> "$GITHUB_ENV"; fi
           echo "m=$(date -u +%Y-%m)" >> "$GITHUB_OUTPUT"
       # BC archives (~49 MB) change once a year and are read only by full refreshes:
       # restore this month's copy, and save only from a full refresh that had to download it.
@@ -106,9 +161,9 @@ jobs:
           fi
 
   build:
-    needs: commit
-    # Runs after a refresh, or on its own for pushes (refresh/commit are skipped then).
-    if: ${{ !cancelled() && needs.commit.result != 'failure' }}
+    needs: [gate, commit]
+    # Runs after a refresh, or on its own for pushes (refresh/commit are skipped then); never when gate skipped the run.
+    if: ${{ !cancelled() && needs.gate.outputs.run == '1' && needs.commit.result != 'failure' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
