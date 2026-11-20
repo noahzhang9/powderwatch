@@ -349,25 +349,67 @@ export function RunChangeTable({ rc, fmt }: { rc: RunChangeState; fmt: Fmt }) {
   );
 }
 
-/** Visible model run times; runs initialised more than 18 h ago are flagged. */
+/** A run that started more than this long ago is flagged stale. */
+const STALE_RUN_H = 18;
+
+/** "12Z–23Z" on one UTC day, "Nov 19 18Z – Nov 20 06Z" across two; a single run time when they all match. */
+function runRange(inits: number[]): string {
+  const lo = Math.min(...inits);
+  const hi = Math.max(...inits);
+  const hour = (u: number) => runLabel(u).split(' ').at(-1);
+  if (lo === hi) return hour(lo)!;
+  const day = (u: number) => new Date(u * 1000).toISOString().slice(0, 10);
+  return day(lo) === day(hi) ? `${hour(lo)}–${hour(hi)}` : `${runLabel(lo)} – ${runLabel(hi)}`;
+}
+
+/** Whole hours since `unix`, as "<1" under an hour. */
+const hoursOld = (now: number, unix: number) => (now - unix < 3600 ? '<1' : String(Math.round((now - unix) / 3600)));
+
+/**
+ * Model run times in one line: the range of run times, their ages and how many are stale
+ * (started more than `STALE_RUN_H` ago). Each model's run sits behind the line's disclosure.
+ */
 export function RunsRow({ ids, meta }: { ids: string[]; meta?: Record<string, RunMeta | null> }) {
   if (!meta) return null;
   const now = Date.now() / 1000;
+  const runs = ids.flatMap((id) => (meta[id] ? [{ id, m: meta[id] }] : []));
+  if (!runs.length) return null;
+  const inits = runs.map((r) => r.m.initUnix);
+  const youngest = hoursOld(now, Math.max(...inits));
+  const oldest = hoursOld(now, Math.min(...inits));
+  const isStale = (m: RunMeta) => now - m.initUnix > STALE_RUN_H * 3600;
+  const stale = runs.filter((r) => isStale(r.m)).length;
   return (
-    <div className="text-[12px] text-ink-2 mt-2 flex flex-wrap gap-x-3 gap-y-1" aria-label="Model run times">
-      <span className="text-ink-3">Runs:</span>
-      {ids.map((id) => {
-        const m = meta[id];
-        if (!m) return null;
-        const stale = now - m.initUnix > 18 * 3600;
-        return (
+    <details className="group/runs text-[12px] text-ink-2 mt-2">
+      <summary
+        className="inline-flex flex-wrap items-baseline gap-x-1.5 rounded-sm hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+        title={`Latest run of each model (start time in UTC) and how long ago it started. Runs that started more than ${STALE_RUN_H} h ago are flagged stale.`}
+      >
+        <span className="text-ink-3">Runs:</span>
+        <span>{runRange(inits)}</span>
+        <span aria-hidden className="text-ink-3">·</span>
+        <span>{youngest === oldest ? youngest : `${youngest}–${oldest}`} h old</span>
+        {stale > 0 && (
+          <>
+            <span aria-hidden className="text-ink-3">·</span>
+            <b>⚠ {stale === runs.length && stale > 1 ? `all ${stale}` : stale} stale</b>
+          </>
+        )}
+        <span aria-hidden className="text-ink-3">·</span>
+        <span className="text-ink-3 underline decoration-dotted underline-offset-2">
+          by model{' '}
+          <span aria-hidden className="inline-block transition-transform group-open/runs:rotate-90 motion-reduce:transition-none">▸</span>
+        </span>
+      </summary>
+      <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1" aria-label="Model run times">
+        {runs.map(({ id, m }) => (
           <span key={id} title={`published ${ago(m.availableUnix)}`}>
             {MODELS[id]?.label ?? id} {runLabel(m.initUnix).split(' ').at(-1)}
             <span className="text-ink-3"> ({ago(m.initUnix).replace(' ago', '')})</span>
-            {stale && <b> ⚠ stale</b>}
+            {isStale(m) && <b> ⚠ stale</b>}
           </span>
-        );
-      })}
-    </div>
+        ))}
+      </div>
+    </details>
   );
 }
