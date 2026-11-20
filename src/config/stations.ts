@@ -9,7 +9,7 @@
  */
 import { RESORTS, type BandKey } from './resorts';
 
-export type StationSource = 'SNOTEL' | 'ECCC' | 'BC-ASWS' | 'SLF' | 'MeteoSwiss' | 'SNODAS';
+export type StationSource = 'SNOTEL' | 'ECCC' | 'BC-ASWS' | 'SLF' | 'MeteoSwiss' | 'SNODAS' | 'JMA';
 
 export interface StationDef {
   id: string;

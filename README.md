@@ -66,6 +66,10 @@ appears once the last scheduled update is more than 8 hours old.
 - **SNODAS** (`public/data/obs/snodas-*.json`): the same `npm run obs` adds each new day from NSIDC
   (one ~10 MB file a day serves all nine points; days already present are never fetched again).
   History comes from the manual backfill below.
+- **JMA** (`public/data/obs/jma-*.json`): the same `npm run obs` re-reads this month's and last month's
+  daily pages from JMA's 過去の気象データ (HTML, no API; requests at least 1.1 s apart, October–June
+  only), and the weekly full refresh the last two seasons. The history from 1991 is a one-time local
+  run, then a commit: `npm run obs -- jma-16217 --history` (about 320 pages, 6 minutes).
 - **Forecast snapshot** (`npm run snapshot`, `scripts/snapshot-forecasts.ts`) runs in the read-only
   build job after `npm run build`. It fetches the Open-Meteo responses the first screens need and
   writes them to `dist/data/fc/` with a `manifest.json` that maps each request URL to its file and

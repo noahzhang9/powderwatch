@@ -19,6 +19,10 @@ describe('recentReports', () => {
     const r = recentReports({ ...base, source: 'MeteoSwiss' } as StationDef, file({}), '2026-11-14', 3);
     expect(r.map((d) => d.newSnowCm)).toEqual([0, 20, 0]);
   });
+  it('shifts JMA new snow (JST 00–24) to the next morning', () => {
+    const r = recentReports({ ...base, source: 'JMA' } as StationDef, file({}), '2026-11-14', 3);
+    expect(r.map((d) => d.newSnowCm)).toEqual([0, 20, 0]);
+  });
   it('has no new-snow value for depth-only sources', () => {
     const r = recentReports({ ...base, source: 'SNOTEL' } as StationDef, file({ newSnowCm: null }), '2026-11-14', 2);
     expect(r.every((d) => d.newSnowCm == null)).toBe(true);

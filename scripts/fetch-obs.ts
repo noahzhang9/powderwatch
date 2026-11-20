@@ -19,6 +19,11 @@
  *   FULL_REFRESH=1 npm run obs       # full histories
  *   npm run obs -- slf-ATT2 snotel-642
  *   npm run obs -- snodas            # the SNODAS points only
+ *   npm run obs -- jma-16217 --history   # one-time JMA history from 1991-10 (~320 pages, ~6 min; run locally)
+ *
+ * JMA stations (scripts/jma.ts) re-fetch whole months of HTML pages, at least JMA_GAP_MS apart: this month and
+ * last month by default, the last two seasons with FULL_REFRESH=1, everything from 1991 with --history. Only
+ * October–June is fetched. Fetched months replace their days in the existing file; other months are kept.
  *
  * Env: PW_CONTACT (URL added to the User-Agent), ARCHIVE_MAX_AGE_DAYS (BC archive cache age),
  * SNODAS_LOOKBACK_DAYS (default 10).
@@ -29,7 +34,8 @@ import { fileURLToPath } from 'node:url';
 import { SNODAS_POINTS, STATIONS, type StationDef } from '../src/config/stations';
 import { SNAPSHOT_INTERVAL_H } from '../src/lib/cache';
 import type { StationFile } from '../src/lib/obs';
-import { addDays } from '../src/lib/time';
+import { addDays, todayIn } from '../src/lib/time';
+import { jmaDailyUrl, jmaPlan, mergeJmaMonths, parseJmaDaily, parseJmaSourceId, type JmaPage } from './jma';
 import { fromFile, sameData, setVal, toFile, type Daily } from './obs-file';
 import { fetchSnodasDay } from './snodas';
 
@@ -39,6 +45,7 @@ const CACHE = join(ROOT, '.cache');
 const CONTACT = process.env.PW_CONTACT;
 const UA = `PowderWatch/0.2 (personal snow dashboard; scheduled fetch every ${SNAPSHOT_INTERVAL_H} h${CONTACT ? `; +${CONTACT}` : ''})`;
 const FULL = process.env.FULL_REFRESH === '1';
+const HISTORY = process.argv.includes('--history');
 const ARCHIVE_MAX_AGE_DAYS = Number(process.env.ARCHIVE_MAX_AGE_DAYS ?? 30);
 /** Incremental window: long enough to pick up late QC revisions. */
 const RECENT_DAYS = 45;
@@ -318,13 +325,64 @@ async function snodasUpdate(points: StationDef[]): Promise<number> {
   return failures;
 }
 
+// ---------------------------------------------------------------- JMA (過去の気象データ daily pages)
+/** At least this long between two JMA requests. */
+const JMA_GAP_MS = 1100;
+
+async function jmaUpdate(stations: StationDef[]): Promise<number> {
+  let failures = 0;
+  let last = 0;
+  for (const st of stations) {
+    const t0 = Date.now();
+    try {
+      const previous = await readPrevious(st.id);
+      const mode = HISTORY ? 'history' : FULL || !previous ? 'full' : 'recent';
+      const today = todayIn('Asia/Tokyo'); // JMA days are JST days
+      const { prec, block } = parseJmaSourceId(st.sourceId);
+      const pages: JmaPage[] = [];
+      const errors: string[] = [];
+      // A failed request stops the station; a page that doesn't parse is noted and the next month tried, so a
+      // history run lists every bad month at once. Either way the previous file is kept.
+      for (const month of jmaPlan(mode, today)) {
+        await sleep(Math.max(0, last + JMA_GAP_MS - Date.now()));
+        let html: string;
+        try {
+          html = await fetchText(jmaDailyUrl(prec, block, month), { retries: 3 });
+        } finally {
+          last = Date.now();
+        }
+        try {
+          const page = parseJmaDaily(html, month, today);
+          pages.push(page);
+          if (mode === 'history' && Object.keys(page.flags).some((f) => f !== 'none')) {
+            console.log(`· ${st.id} ${month.year}-${String(month.month).padStart(2, '0')}: ${JSON.stringify(page.flags)}`);
+          }
+        } catch (err) {
+          errors.push(`${month.year}-${month.month}: ${(err as Error).message}`);
+        }
+      }
+      if (errors.length) throw new Error(`${errors.length} month(s) failed: ${errors.join('; ')}`);
+      const daily = mergeJmaMonths(previous ? fromFile(previous) : new Map(), pages);
+      if (!daily.size) throw new Error('no data returned');
+      const file = toFile(st, daily);
+      const unchanged = sameData(previous, file);
+      if (!unchanged) await writeFile(join(OUT, `${st.id}.json`), JSON.stringify(file));
+      console.log(summary(st, file, mode.padEnd(6), unchanged, t0));
+    } catch (err) {
+      failures++;
+      console.error(`✗ ${st.id}: ${(err as Error).message} — keeping previous file if any`);
+    }
+  }
+  return failures;
+}
+
 async function main() {
-  const only = process.argv.slice(2);
+  const only = process.argv.slice(2).filter((a) => !a.startsWith('--'));
   const targets = STATIONS.filter((s) => !only.length || only.includes(s.id));
   const snodasTargets = SNODAS_POINTS.filter((s) => !only.length || only.includes('snodas') || only.includes(s.id));
   await mkdir(OUT, { recursive: true });
   let failures = 0;
-  for (const st of targets) {
+  for (const st of targets.filter((s) => s.source !== 'JMA')) {
     const t0 = Date.now();
     try {
       const path = join(OUT, `${st.id}.json`);
@@ -347,6 +405,7 @@ async function main() {
       console.error(`✗ ${st.id}: ${(err as Error).message} — keeping previous file if any`);
     }
   }
+  failures += await jmaUpdate(targets.filter((s) => s.source === 'JMA'));
   if (snodasTargets.length) failures += await snodasUpdate(snodasTargets);
   process.exitCode = failures ? 1 : 0;
 }
