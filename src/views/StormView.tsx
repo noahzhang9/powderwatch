@@ -8,13 +8,13 @@ import { useBandForecast, useEnsembles, useNbm, useRunMeta, useWpc, type BandFor
 import { useNarrow } from '../hooks/useNarrow';
 import { useHashParam } from '../hooks/useRoute';
 import { cumulativePlume, dailyDistributions } from '../lib/ensemble';
-import { dailyCentres, dailyPhase, lastValidTime, type DerivedHourly } from '../lib/forecast';
+import { dailyCentres, dailyPhase, drivenDays, lastValidTime, type DerivedHourly, type DrivenDay } from '../lib/forecast';
 import { alpha, slotColor, type ChartPalette } from '../lib/palette';
 import { useFmt, usePrefs, type Fmt } from '../lib/prefs';
 import { isNum, rangeAcross, type Series } from '../lib/stats';
 import { dayLabel, localDate, localHourLabel, nowUnix, todayIn } from '../lib/time';
 import { RecentSection } from './RecentSection';
-import { DailyLegend, DailySnowChart, PhaseGustStrip, RainStrip, nbmSnowOn } from './storm/Daily';
+import { DailyLegend, DailySnowChart, PhaseGustStrip, RainStrip, drivenSummary, nbmSnowOn } from './storm/Daily';
 import { Chances, RunChangeSummary, RunChangeTable, RunsRow, Totals, WpcChances, useRunChange } from './storm/Panels';
 
 const BANDS = ['base', 'mid', 'summit'] as const;
@@ -70,6 +70,7 @@ export function StormView({ resort }: { resort: Resort }) {
   const centres = useMemo(() => (data ? dailyCentres(data.models, resort.tz) : new Map<string, number>()), [data, resort.tz]);
   const phases = useMemo(() => (data ? dailyPhase(data.blend, resort.tz, resort.bands.map((b) => b.elevation)) : new Map()), [data, resort]);
   const dists = useMemo(() => (ens.data ? dailyDistributions(ens.data.time, ens.data.members, (t) => localDate(t, resort.tz)) : null), [ens.data, resort.tz]);
+  const driven = useMemo(() => (data ? drivenDays(data, resort.tz, ens.data) : null), [data, ens.data, resort.tz]);
 
   const chips = data && (
     <div className="flex flex-wrap gap-2" role="group" aria-label="Models (toggle visibility)">
@@ -148,7 +149,7 @@ export function StormView({ resort }: { resort: Resort }) {
           >
             {mode === 'daily' ? (
               <>
-                <DailySnowChart data={data} days={days} dists={dists} centres={centres} phases={phases} visible={visible} resort={resort} fmt={fmt} narrow={narrow} rawSnow={rawSnow} today={today} nbm={nbmData} />
+                <DailySnowChart data={data} days={days} dists={dists} driven={driven} centres={centres} phases={phases} visible={visible} resort={resort} fmt={fmt} narrow={narrow} rawSnow={rawSnow} today={today} nbm={nbmData} />
                 <RainStrip days={days} fmt={fmt} />
                 <PhaseGustStrip days={days} phases={phases} resort={resort} fmt={fmt} narrow={narrow} />
                 <DailyLegend fmt={fmt} nbm={nbmData} />
@@ -157,7 +158,7 @@ export function StormView({ resort }: { resort: Resort }) {
             ) : (
               <CumulativeChart data={data} visible={visible} now={now} tz={resort.tz} fmt={fmt} rawSnow={rawSnow} />
             )}
-            {showTable && <DailyTable data={data} tz={resort.tz} fmt={fmt} nbm={nbmData} />}
+            {showTable && <DailyTable data={data} tz={resort.tz} fmt={fmt} nbm={nbmData} driven={driven} />}
           </Section>
           {ens.error && <RequestError what="Ensemble" error={ens.error} retry={ens.retry} />}
           <Chances ens={ens.data} now={now} resort={resort} fmt={fmt} />
@@ -473,7 +474,9 @@ function TempSection({ data, visible, band, tz, fmt }: { data: BandForecast; vis
   );
 }
 
-function DailyTable({ data, tz, fmt, nbm }: { data: BandForecast; tz: string; fmt: Fmt; nbm: NbmForecast | null }) {
+function DailyTable({ data, tz, fmt, nbm, driven }: {
+  data: BandForecast; tz: string; fmt: Fmt; nbm: NbmForecast | null; driven: Map<string, DrivenDay> | null;
+}) {
   const today = todayIn(tz);
   const days = data.blendDaily.filter((d) => d.date >= today).slice(0, 16);
   return (
@@ -490,19 +493,25 @@ function DailyTable({ data, tz, fmt, nbm }: { data: BandForecast; tz: string; fm
           </tr>
         </thead>
         <tbody>
-          {days.map((d) => (
-            <tr key={d.date}>
-              <td>{d.date === today ? 'Today' : dayLabel(d.date)}</td>
-              <td><b>{fmt.snow(d.snowCm)}</b></td>
-              <td>{fmt.water(d.rainMm)}</td>
-              <td>{d.snowLevelMin == null ? '—' : fmt.elevRange(d.snowLevelMin, d.snowLevelMax)}</td>
-              {data.models.map((m) => {
-                const r = data.daily[m.model.id]?.find((x) => x.date === d.date);
-                return <td key={m.model.id}>{r && r.hours >= 20 ? fmt.snow(r.snowCm) : '—'}</td>;
-              })}
-              {nbm && <td>{fmt.snow(nbmSnowOn(nbm, d.date))}</td>}
-            </tr>
-          ))}
+          {days.map((d) => {
+            const dr = driven?.get(d.date);
+            return (
+              <tr key={d.date}>
+                <td>{d.date === today ? 'Today' : dayLabel(d.date)}</td>
+                <td>
+                  <b>{fmt.snow(d.snowCm)}</b>
+                  {dr && <i className="ml-1.5 text-ink-2" title={drivenSummary(dr)}>outlier<span className="sr-only"> ({drivenSummary(dr)})</span></i>}
+                </td>
+                <td>{fmt.water(d.rainMm)}</td>
+                <td>{d.snowLevelMin == null ? '—' : fmt.elevRange(d.snowLevelMin, d.snowLevelMax)}</td>
+                {data.models.map((m) => {
+                  const r = data.daily[m.model.id]?.find((x) => x.date === d.date);
+                  return <td key={m.model.id}>{r && r.hours >= 20 ? fmt.snow(r.snowCm) : '—'}</td>;
+                })}
+                {nbm && <td>{fmt.snow(nbmSnowOn(nbm, d.date))}</td>}
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>

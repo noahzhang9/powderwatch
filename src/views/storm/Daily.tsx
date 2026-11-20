@@ -1,7 +1,8 @@
 /**
  * Daily outlook for one elevation band: snowfall bars (shaded by amount,
  * faded where fewer than three forecast centres contribute, flagged when the
- * ensemble is split), plus aligned rain, precipitation-type and gust strips.
+ * ensemble is split or one model drives the total), plus aligned rain,
+ * precipitation-type and gust strips.
  */
 import { useCallback, type CSSProperties } from 'react';
 import type { Resort } from '../../config/resorts';
@@ -9,7 +10,7 @@ import { Chart, baseOption, tipHeader, tipRow, type EChartsCoreOption } from '..
 import { NBM } from '../../config/models';
 import type { BandForecast, NbmForecast } from '../../hooks/data';
 import type { DayDist } from '../../lib/ensemble';
-import type { DailyRow, DerivedHourly, Phase } from '../../lib/forecast';
+import { DRIVEN_MIN_CM, DRIVEN_SHARE, LOW_CENTRES, type DailyRow, type DerivedHourly, type DrivenDay, type Phase } from '../../lib/forecast';
 import { SNOW_CLASSES_CM, alpha, slotColor, snowClass, type ChartPalette } from '../../lib/palette';
 import type { Fmt } from '../../lib/prefs';
 import { dayLabel, runLabel, shortDate } from '../../lib/time';
@@ -17,7 +18,8 @@ import { dayLabel, runLabel, shortDate } from '../../lib/time';
 /** Shared plot margins so every strip lines up with the bars. */
 const GRID_L = 52;
 const GRID_R = 16;
-export const LOW_CENTRES = 3;
+/** Defined in lib/forecast (drivenDays uses it too); re-exported for the views that import it from here. */
+export { LOW_CENTRES };
 const WIND_HOLD_KMH = 64; // ≈ 40 mph gusts: lift-hold territory
 /** Series name of the NBM benchmark mark (kept out of the per-model tooltip rows). */
 const NBM_SERIES = NBM.label;
@@ -26,6 +28,8 @@ export interface DailyContext {
   data: BandForecast;
   days: DailyRow[];
   dists: Map<string, DayDist> | null;
+  /** Days whose blended total rests on one model (drivenDays). */
+  driven: Map<string, DrivenDay> | null;
   centres: Map<string, number>;
   phases: Map<string, Phase[]>;
   visible: DerivedHourly[];
@@ -45,6 +49,19 @@ function snowText(fmt: Fmt, cm: number | null | undefined, narrow: boolean) {
   return narrow ? fmt.snow(cm).replace(/ (in|cm)$/, '') : fmt.snow(cm);
 }
 
+/** A driving centre's share as a whole percentage, never shown as 50% or less (the rule is "more than half"). */
+const sharePct = (share: number) => Math.max(Math.round(share * 100), Math.floor(DRIVEN_SHARE * 100) + 1);
+const driverNames = (dr: DrivenDay) => dr.driver?.models.map((m) => m.label).join(' + ') ?? '';
+
+/** One sentence on why a day is marked outlier (table cell, screen readers). */
+export function drivenSummary(dr: DrivenDay): string {
+  const why = [
+    dr.driver ? `${driverNames(dr)} ${dr.driver.models.length > 1 ? 'supply' : 'supplies'} ${sharePct(dr.driver.share)}% of the blend's snow` : '',
+    dr.ensP90 != null ? 'the blend is above 90% of ensemble members' : '',
+  ].filter(Boolean);
+  return `Outlier: ${why.join('; ')}.`;
+}
+
 /** NBM's own snowfall for a day, if it covers the day (the same ≥ 20 h rule as the model marks). */
 export function nbmSnowOn(nbm: NbmForecast | null | undefined, date: string): number | null {
   const r = nbm?.daily.find((x) => x.date === date);
@@ -52,7 +69,7 @@ export function nbmSnowOn(nbm: NbmForecast | null | undefined, date: string): nu
 }
 
 export function DailySnowChart(ctx: DailyContext) {
-  const { data, days, dists, centres, visible, fmt, narrow, rawSnow, today, nbm } = ctx;
+  const { data, days, dists, driven, centres, visible, fmt, narrow, rawSnow, today, nbm } = ctx;
   const key = rawSnow ? 'omSnowCm' : 'snowCm';
   const option = useCallback(
     (p: ChartPalette): EChartsCoreOption => {
@@ -63,9 +80,12 @@ export function DailySnowChart(ctx: DailyContext) {
         const r = data.daily[m.model.id]?.find((x) => x.date === date);
         return r && r.hours >= 20 ? fmt.snowVal(r[key]) : null;
       };
+      // Italic notes under a day's total; both describe PowderWatch physics, so neither shows with raw snowfall.
+      const notes = (date: string) => (rawSnow ? [] : [dists?.get(date)?.split ? 'split' : '', driven?.has(date) ? 'outlier' : ''].filter(Boolean));
+      const extraLines = Math.max(0, ...days.map((d) => notes(d.date).length - 1));
       return {
         ...base,
-        grid: { left: GRID_L, right: GRID_R, top: 18, bottom: narrow ? 50 : 60 },
+        grid: { left: GRID_L, right: GRID_R, top: 18, bottom: (narrow ? 50 : 60) + 13 * extraLines },
         xAxis: {
           ...(base.xAxis as object), type: 'category', data: days.map((d) => d.date),
           axisLabel: {
@@ -74,8 +94,7 @@ export function DailySnowChart(ctx: DailyContext) {
               const d = days.find((x) => x.date === date);
               const v = d?.[key];
               const name = date === today ? 'Today' : narrow ? dayLabel(date).split(' ')[0].slice(0, 2) : dayLabel(date);
-              const split = !rawSnow && dists?.get(date)?.split;
-              return `{d|${name}}\n{${v != null && v >= 0.5 ? 'v' : 'z'}|${snowText(fmt, v, narrow)}}${split ? '\n{s|split}' : ''}`;
+              return `{d|${name}}\n{${v != null && v >= 0.5 ? 'v' : 'z'}|${snowText(fmt, v, narrow)}}${notes(date).map((n) => `\n{s|${n}}`).join('')}`;
             },
             rich: {
               d: { color: p.ink3, fontSize: 11, lineHeight: 15 },
@@ -95,6 +114,7 @@ export function DailySnowChart(ctx: DailyContext) {
             const num = (x: (typeof params)[number]) => (x.value != null && typeof x.value === 'object' ? x.value.value : x.value);
             const show = (v: number | null | undefined) => fmt.snow(fmt.units === 'imperial' && v != null ? v * 2.54 : v);
             const dist = dists?.get(d.date);
+            const dr = rawSnow ? undefined : driven?.get(d.date);
             const lines = [
               tipRow(p.ink1, 'blend', fmt.snow(d[key]), p),
               dist && !rawSnow ? tipRow(p.proj.line, `ensemble median (10–90%: ${fmt.snowRange(dist.p10, dist.p90)})`, fmt.snow(dist.p50), p) : '',
@@ -102,6 +122,11 @@ export function DailySnowChart(ctx: DailyContext) {
                 ? `<div style="color:${p.ink1};margin:4px 0 2px;font-weight:600">Models split</div>` +
                   tipRow(p.ink3, `of members ≤ ${fmt.snow(2.5)} (typical ${fmt.snow(dist.lowMedian)})`, `${Math.round(dist.pLow * 100)}%`, p) +
                   tipRow(p.ink3, `of members ≥ ${fmt.snow(15)} (typical ${fmt.snow(dist.highMedian)})`, `${Math.round(dist.pHigh * 100)}%`, p)
+                : '',
+              dr
+                ? `<div style="color:${p.ink1};margin:4px 0 2px;font-weight:600">Outlier</div>` +
+                  (dr.driver ? tipRow(p.ink3, `of the blend's snow from ${driverNames(dr)}`, `${sharePct(dr.driver.share)}%`, p) : '') +
+                  (dr.ensP90 != null ? tipRow(p.ink3, 'blend above 90% of ensemble members (90th percentile)', fmt.snow(dr.ensP90), p) : '')
                 : '',
               nbm ? tipRow(p.ink1, `${NBM.label} (official guidance, its own snowfall)`, fmt.snow(nbmSnowOn(nbm, d.date)), p, 'tick') : '',
               ...params
@@ -148,15 +173,17 @@ export function DailySnowChart(ctx: DailyContext) {
         ],
       };
     },
-    [data, days, dists, centres, visible, fmt, narrow, rawSnow, today, key, nbm],
+    [data, days, dists, driven, centres, visible, fmt, narrow, rawSnow, today, key, nbm],
   );
   const total = days.reduce((s, d) => s + (d[key] ?? 0), 0);
   const biggest = days.reduce<DailyRow | null>((b, d) => ((d[key] ?? 0) > (b?.[key] ?? 0) ? d : b), null);
+  const outliers = rawSnow ? [] : days.filter((d) => driven?.has(d.date));
   return (
     <Chart
       option={option}
       height={narrow ? 260 : 300}
       ariaLabel={`Daily snowfall, next ${days.length} days: blend total ${fmt.snow(total)}${biggest ? `, biggest day ${longDay(biggest.date)} with ${fmt.snow(biggest[key])}` : ''}.` +
+        (outliers.length ? ` Outlier totals, resting on one model: ${outliers.map((d) => longDay(d.date)).join(', ')}.` : '') +
         (nbm ? ` ${NBM.long}, its own snowfall: ${fmt.snow(days.reduce((s, d) => s + (nbmSnowOn(nbm, d.date) ?? 0), 0))} over the days it covers.` : '')}
     />
   );
@@ -278,6 +305,11 @@ export function DailyLegend({ fmt, nbm }: { fmt: Fmt; nbm?: NbmForecast | null }
       </span>
       <span className="flex items-center gap-1">{sw('transparent', { border: '1.5px solid var(--snow-3)' })}fewer than 3 centres</span>
       <span><i>split</i> = models disagree</span>
+      <span
+        title={`At least ${fmt.snow(DRIVEN_MIN_CM, 0)}, and one forecast centre supplies more than ${Math.round(DRIVEN_SHARE * 100)}% of the blend's snow or the blend is above 90% of ensemble members. Hover the day for which.`}
+      >
+        <i>outlier</i> = one model drives the total
+      </span>
       <span className="flex items-center gap-2">
         <span className="flex items-center gap-1">{sw('var(--snow-3)')}S snow</span>
         <span className="flex items-center gap-1">{sw('var(--mixed)')}M mixed</span>

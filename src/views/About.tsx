@@ -6,10 +6,9 @@ import { PHASE_TW_HALF_WIDTH, PHASE_TW_MID, SNOW_LEVEL_OFFSET_M, snowToLiquidRat
 import { DEFAULT_PARAMS } from '../lib/snowpack';
 import { GAP_FILL_DAYS, MIN_SEASON_COVERAGE, SMOOTH_HALF_DAYS } from '../lib/climatology';
 import { CHANCE_THRESHOLDS_CM, SPLIT_HIGH_CM, SPLIT_LOW_CM, SPLIT_MIN_SHARE } from '../lib/ensemble';
-import { PHASE_BAND_M } from '../lib/forecast';
+import { DRIVEN_MIN_CM, DRIVEN_SHARE, LOW_CENTRES, PHASE_BAND_M } from '../lib/forecast';
 import { useFmt } from '../lib/prefs';
 import { WPC_ATTRIBUTION, WPC_CATEGORY_LABEL, WPC_THRESHOLDS_IN } from '../lib/wpc';
-import { LOW_CENTRES } from './storm/Daily';
 
 export function About() {
   const fmt = useFmt();
@@ -57,6 +56,13 @@ export function About() {
         <li>
           A day is <i>split</i> when at least {Math.round(SPLIT_MIN_SHARE * 100)}% of ensemble members (centre-weighted) give {fmt.snow(SPLIT_LOW_CM)} or less
           and at least {Math.round(SPLIT_MIN_SHARE * 100)}% give {fmt.snow(SPLIT_HIGH_CM)} or more. On split days the average is not a likely outcome; hover the day for both camps.
+        </li>
+        <li>
+          A day's total is marked <i>outlier</i> when the blend gives at least {fmt.snow(DRIVEN_MIN_CM, 0)} over the whole day and either one forecast
+          centre supplies more than {Math.round(DRIVEN_SHARE * 100)}% of it, counted with the blend's own hourly weights (judged only on days with at
+          least {LOW_CENTRES} centres), or it is above the ensemble's 90th percentile for that day: more than 90% of members, centre-weighted, give
+          less (judged when at least {LOW_CENTRES} ensemble centres cover the day). The blend stays the plain mean, which keeps daily and cumulative
+          totals consistent; the mark says one model's number is carrying it. Hover the day for the model, or the ensemble's 90th percentile.
         </li>
         <li>Totals of 7 days or more lead with the ensemble median and its 10–90% range. The multi-model blend is still shown, with a warning when it falls outside the range of the models that cover the whole window (late in the window fewer centres remain, so the blend can drift).</li>
         <li>Precipitation type per elevation: snow when the band is more than {fmt.elev(PHASE_BAND_M)} above the blended snow level during wet hours, rain when more than {fmt.elev(PHASE_BAND_M)} below, mixed otherwise.</li>

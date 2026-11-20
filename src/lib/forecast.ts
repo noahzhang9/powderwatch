@@ -3,11 +3,12 @@
  * per-model hourly snow/rain, freezing and snow levels, local-day totals,
  * and a family-balanced multi-model blend.
  */
-import { MODELS, type ModelDef } from '../config/models';
+import { MODELS, type Family, type ModelDef } from '../config/models';
+import { dailyDistributions, type MemberSeries } from './ensemble';
 import { freezingLevel, nonNegativePrecip, snowLevel, snowLevelFromFreezingLevel, splitPrecip, type ProfileLevel } from './physics';
 import { familyWeights, isNum, weightedMean, weightedQuantile, type Num, type Series } from './stats';
 import type { SurfaceHourly } from './openmeteo';
-import { localParts } from './time';
+import { localDate, localParts } from './time';
 
 export interface DerivedHourly {
   model: ModelDef;
@@ -156,8 +157,7 @@ export function blend(models: DerivedHourly[]): BlendHourly | null {
     time, snowCm: [], rainMm: [], precip: [], omSnowCm: [], tC: [], fzl: [], snowLevel: [], gust: [], snowMin: [], snowMax: [], count: [],
   };
   for (let i = 0; i < time.length; i++) {
-    const present = models.map((m) => isNum(m.precip[i]) && isNum(m.tC[i]));
-    const w = familyWeights(fams, present);
+    const { present, w } = blendWeights(models, fams, i);
     const col = (k: keyof Pick<DerivedHourly, 'snowCm' | 'rainMm' | 'precip' | 'omSnowCm' | 'tC' | 'fzl' | 'snowLevel' | 'gust'>) =>
       models.map((m, j) => (present[j] ? m[k][i] : null));
     out.snowCm.push(weightedMean(col('snowCm'), w));
@@ -173,6 +173,37 @@ export function blend(models: DerivedHourly[]): BlendHourly | null {
     out.snowMax.push(s.length ? Math.max(...s) : null);
     out.count.push(present.filter(Boolean).length);
   }
+  return out;
+}
+
+/** The blend's weights at hour i: which models have data, and each one's share of its centre's equal weight. */
+function blendWeights(models: DerivedHourly[], fams: string[], i: number): { present: boolean[]; w: number[] } {
+  const present = models.map((m) => isNum(m.precip[i]) && isNum(m.tC[i]));
+  return { present, w: familyWeights(fams, present) };
+}
+
+/**
+ * Each model's part of the blend's snowfall per local day, cm: its hourly snowfall times the weight the
+ * blend gives it that hour, summed over the day (same day convention as toDaily). A day's parts add up
+ * to the blend's daily snowfall.
+ */
+export function blendSnowParts(models: DerivedHourly[], tz: string): Map<string, Map<string, number>> {
+  const out = new Map<string, Map<string, number>>();
+  if (!models.length) return out;
+  const fams = models.map((m) => m.model.family);
+  models[0].time.forEach((t, i) => {
+    const { present, w } = blendWeights(models, fams, i);
+    // Normalise as weightedMean does, over the models whose snowfall is a number.
+    const total = models.reduce((s, m, j) => s + (present[j] && isNum(m.snowCm[i]) ? w[j] : 0), 0);
+    if (!(total > 0)) return;
+    const { date } = localParts(t - 3600, tz);
+    if (!out.has(date)) out.set(date, new Map());
+    const day = out.get(date)!;
+    models.forEach((m, j) => {
+      const v = m.snowCm[i];
+      if (present[j] && isNum(v)) day.set(m.model.id, (day.get(m.model.id) ?? 0) + (v * w[j]) / total);
+    });
+  });
   return out;
 }
 
@@ -196,6 +227,9 @@ export function lastValidTime(time: number[], s: Series): number | null {
 }
 
 // ---------------------------------------------------------------- confidence & phase
+
+/** Days with fewer forecast centres than this are low confidence: outlined on the charts, and not judged by drivenDays. */
+export const LOW_CENTRES = 3;
 
 /** Number of forecast centres with ≥ 20 h of data on each local day. */
 export function dailyCentres(models: DerivedHourly[], tz: string): Map<string, number> {
@@ -242,6 +276,72 @@ export function dailyPhase(b: BlendHourly, tz: string, elevations: number[]): Ma
         return kinds.size === 1 ? ([...kinds][0] as Phase) : 'mixed';
       }),
     );
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------- days one model drives
+
+/** Smallest blended daily snowfall that can be flagged as driven by one model, cm (about 2 in). */
+export const DRIVEN_MIN_CM = 5;
+/** A forecast centre supplying more than this share of the blend's daily snowfall drives the day. */
+export const DRIVEN_SHARE = 0.5;
+
+/** 'one-centre': one forecast centre supplies more than DRIVEN_SHARE of the blend. 'above-ensemble': the blend is above the ensemble's 90th percentile. */
+export type DrivenReason = 'one-centre' | 'above-ensemble';
+
+export interface DrivenDay {
+  /** The blend's snowfall that day, cm. */
+  blendCm: number;
+  reasons: DrivenReason[];
+  /** 'one-centre': the centre, its share of the blend's snowfall, and its models, largest part first. */
+  driver: { family: Family; share: number; models: ModelDef[] } | null;
+  /** 'above-ensemble': the ensemble's (centre-weighted) 90th percentile for the day, which the blend exceeds. */
+  ensP90: number | null;
+}
+
+/**
+ * Local days whose blended snowfall rests on one model: at least DRIVEN_MIN_CM, a complete day (≥ 20 h),
+ * and either one forecast centre supplies more than DRIVEN_SHARE of it, using the blend's own hourly
+ * weights (only on days with at least LOW_CENTRES centres; fewer is already marked low confidence), or
+ * the blend is above the ensemble's 90th percentile for the day (when at least LOW_CENTRES ensemble
+ * centres cover it). The blend itself is unchanged: this only says when its mean is one model's number.
+ */
+export function drivenDays(
+  data: { models: DerivedHourly[]; blendDaily: DailyRow[] },
+  tz: string,
+  ens?: { time: number[]; members: MemberSeries[] } | null,
+): Map<string, DrivenDay> {
+  const parts = blendSnowParts(data.models, tz);
+  const centres = dailyCentres(data.models, tz);
+  const dists = ens?.members.length ? dailyDistributions(ens.time, ens.members, (t) => localDate(t, tz)) : null;
+  const out = new Map<string, DrivenDay>();
+  for (const d of data.blendDaily) {
+    const total = d.snowCm;
+    if (total == null || total < DRIVEN_MIN_CM || d.hours < 20) continue;
+    const reasons: DrivenReason[] = [];
+
+    let driver: DrivenDay['driver'] = null;
+    const byModel = parts.get(d.date);
+    if (byModel && (centres.get(d.date) ?? 0) >= LOW_CENTRES) {
+      const byFamily = new Map<Family, number>();
+      for (const m of data.models) byFamily.set(m.model.family, (byFamily.get(m.model.family) ?? 0) + (byModel.get(m.model.id) ?? 0));
+      const [family, cm] = [...byFamily].reduce((a, b) => (b[1] > a[1] ? b : a));
+      if (cm > DRIVEN_SHARE * total) {
+        const models = data.models
+          .filter((m) => m.model.family === family && (byModel.get(m.model.id) ?? 0) > 0)
+          .sort((a, b) => (byModel.get(b.model.id) ?? 0) - (byModel.get(a.model.id) ?? 0))
+          .map((m) => m.model);
+        driver = { family, share: cm / total, models };
+        reasons.push('one-centre');
+      }
+    }
+
+    const dist = dists?.get(d.date);
+    const ensP90 = dist && dist.centres >= LOW_CENTRES && dist.p90 != null && total > dist.p90 ? dist.p90 : null;
+    if (ensP90 != null) reasons.push('above-ensemble');
+
+    if (reasons.length) out.set(d.date, { blendCm: total, reasons, driver, ensP90 });
   }
   return out;
 }

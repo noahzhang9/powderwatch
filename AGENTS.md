@@ -8,7 +8,7 @@ PowderWatch is a static React + TypeScript site (Vite, Tailwind, ECharts). It ha
 
 ```bash
 npm ci                 # install (see "Lockfile" below)
-npm test               # vitest: physics, stats, climatology, snowpack, time zones, snapshot plan/URL parity and daily budget, cache,
+npm test               # vitest: physics, stats, blend and outlier days, climatology, snowpack, time zones, snapshot plan/URL parity and daily budget, cache,
                        # verification record + its Python validator, WPC parser, SNODAS reader + the obs validator
 npm run typecheck
 npm run build          # tsc + vite build → dist/
@@ -124,6 +124,7 @@ The site stays calm and scannable as data sources are added. A new feature that 
 - **Show uncertainty, never hide it.**
   - Days with fewer than 3 forecast centres are outlined.
   - Split days are flagged.
+  - Days one model drives are flagged *outlier* (`drivenDays` in `forecast.ts`); the blend itself stays the plain mean.
   - Totals of 7 days or more lead with the ensemble median and its 10–90% range.
   - Anything labelled a probability is model spread unless verified.
 - **The Methods page (`About.tsx`) renders constants from the code.** When you change a threshold, check that the page still describes it correctly.
