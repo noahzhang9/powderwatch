@@ -36,6 +36,9 @@ export function Delta({ d, fmt }: { d: { delta: number; sinceS: number } | null;
   );
 }
 
+/** Keeps a figure and its unit on one line when a tile's sub-line wraps. */
+const nw = (text: string) => <span className="whitespace-nowrap">{text}</span>;
+
 const WINDOWS = [
   { label: 'Next 24 h', hours: 24, ensemble: false },
   { label: 'Next 3 days', hours: 72, ensemble: false },
@@ -66,7 +69,8 @@ export function Totals({ data, now, ens, fmt, rawSnow, resort, band }: {
   // "None" only when the blend and every model show as zero, so the sub-line never contradicts the value.
   const zero = fmt.snow(0);
   return (
-    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3 mt-4">
+    // Phones: compact tiles, two to a row with the snow-level tile across both, so the daily chart starts near the first screen.
+    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-2 sm:gap-3 mt-3 sm:mt-4">
       {WINDOWS.map((w) => {
         const blendTotal = windowSum(data.blend.time, data.blend[key], now, now + w.hours * 3600);
         // Models that cover the whole window, with their own totals.
@@ -83,7 +87,7 @@ export function Totals({ data, now, ens, fmt, rawSnow, resort, band }: {
         const range = !cover.length
           ? 'no model reaches this far'
           : only
-            ? useEns ? `only ${only.label} reaches this far: ${fmt.snow(only.v)}` : 'no other model reaches this far'
+            ? useEns ? <>only {only.label} reaches this far: {nw(fmt.snow(only.v))}</> : 'no other model reaches this far'
             : fmt.snow(hi) === zero && fmt.snow(blendTotal ?? 0) === zero
               ? `all ${per.length} models: none`
               : `${per.length} models: ${fmt.snowRange(lo, hi)}`;
@@ -92,11 +96,12 @@ export function Totals({ data, now, ens, fmt, rawSnow, resort, band }: {
         return (
           <Tile
             key={w.label}
+            compact="tile"
             label={useEns ? `${w.label} · ensemble median` : only ? `${w.label} · ${only.label}` : w.label}
             value={fmt.snow(useEns ? p50 : only ? only.v : cover.length ? blendTotal : null)}
             sub={
               <>
-                {useEns ? <>10–90%: {fmt.snowRange(p10, p90)}{cover.length >= 2 && <> · blend {fmt.snow(blendTotal)}</>}</> : range}
+                {useEns ? <>10–90%: {nw(fmt.snowRange(p10, p90))}{cover.length >= 2 && <> · {nw(`blend ${fmt.snow(blendTotal)}`)}</>}</> : range}
                 {useEns && <><br />{range}</>}
                 {!useEns && p10 != null && w.hours >= 72 && <><br />ensemble 10–90%: {fmt.snowRange(p10, p90)}</>}
                 {outside && <><br /><span className="text-ink-1">⚠ blend outside the model range (fewer centres late in the window)</span></>}
@@ -107,6 +112,8 @@ export function Totals({ data, now, ens, fmt, rawSnow, resort, band }: {
         );
       })}
       <Tile
+        compact="row"
+        className="col-span-2 md:col-span-1"
         label="Snow level, next 72 h"
         value={wet.length ? (Math.max(...wet) - Math.min(...wet) < 100 ? fmt.elev(Math.min(...wet)) : fmt.elevRange(Math.min(...wet), Math.max(...wet))) : 'dry'}
         sub={<>{wet.length ? 'blend, while precipitating' : 'no precipitation expected'}<br />Rain at this elevation, 7 d: {fmt.water(rain7)}</>}

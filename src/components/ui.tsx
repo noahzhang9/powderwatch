@@ -17,12 +17,26 @@ export function Seg<T extends string>({ value, options, onChange, label }: {
   );
 }
 
-export function Tile({ label, value, sub, title }: { label: string; value: ReactNode; sub?: ReactNode; title?: string }) {
+/**
+ * A headline number. `compact` tightens it below the `sm` breakpoint only (phones); wider screens are
+ * unchanged. 'row' also sets the sub-line beside the number, for a tile spanning a phone's full width.
+ */
+export function Tile({ label, value, sub, title, compact, className = '' }: {
+  label: string; value: ReactNode; sub?: ReactNode; title?: string; compact?: 'tile' | 'row'; className?: string;
+}) {
+  const row = compact === 'row';
   return (
-    <div className="card px-4 py-3 min-w-0" title={title}>
-      <div className="text-[11px] uppercase tracking-wide text-ink-3">{label}</div>
-      <div className="text-2xl font-semibold leading-tight mt-0.5 break-words">{value}</div>
-      {sub != null && <div className="text-xs text-ink-2 mt-0.5">{sub}</div>}
+    <div
+      className={`card min-w-0 ${compact ? 'px-3 py-2 sm:px-4 sm:py-3' : 'px-4 py-3'} ${row ? 'grid grid-cols-[auto_1fr] gap-x-4 sm:block' : ''} ${className}`}
+      title={title}
+    >
+      <div className={`${compact ? 'text-[10px] leading-tight sm:text-[11px] sm:leading-normal' : 'text-[11px]'} uppercase tracking-wide text-ink-3`}>{label}</div>
+      <div className={`${compact ? 'text-xl sm:text-2xl' : 'text-2xl'} font-semibold leading-tight mt-0.5 break-words`}>{value}</div>
+      {sub != null && (
+        <div className={`${compact ? 'text-[11px] leading-snug sm:text-xs sm:leading-4' : 'text-xs'} ${row ? 'col-start-2 row-start-1 row-span-2 self-center sm:mt-0.5' : 'mt-0.5'} text-ink-2`}>
+          {sub}
+        </div>
+      )}
     </div>
   );
 }
