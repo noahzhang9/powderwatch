@@ -15,55 +15,62 @@ const STORE = 'http';
 const mem = new Map<string, { t: number; data: unknown }>();
 const inflight = new Map<string, Promise<unknown>>();
 
+// IndexedDB only saves requests: anything that goes wrong with it (storage blocked, a closed
+// connection, an aborted transaction) is a cache miss, never a reason for a request to fail.
 let dbPromise: Promise<IDBDatabase | null> | null = null;
 function db(): Promise<IDBDatabase | null> {
   if (dbPromise) return dbPromise;
   dbPromise = new Promise((resolve) => {
     if (typeof indexedDB === 'undefined') return resolve(null);
-    const req = indexedDB.open(DB_NAME, 1);
+    let req: IDBOpenDBRequest;
+    try {
+      req = indexedDB.open(DB_NAME, 1);
+    } catch {
+      return resolve(null); // e.g. SecurityError where the browser blocks storage
+    }
     req.onupgradeneeded = () => req.result.createObjectStore(STORE);
     req.onsuccess = () => {
-      // Close on a delete/upgrade request so "clear cache" isn't blocked by this connection.
-      req.result.onversionchange = () => req.result.close();
-      resolve(req.result);
+      const d = req.result;
+      // Close on a delete/upgrade request (e.g. another tab clearing the cache) so it isn't
+      // blocked by this connection, and open a new one on next use.
+      d.onversionchange = () => {
+        d.close();
+        dbPromise = null;
+      };
+      d.onclose = () => (dbPromise = null); // closed by the browser
+      resolve(d);
     };
     req.onerror = () => resolve(null);
   });
   return dbPromise;
 }
 
-async function idbGet(key: string): Promise<{ t: number; data: unknown } | undefined> {
+/** One request in its own transaction; resolves to `fallback` on any failure. */
+async function inStore<R>(mode: IDBTransactionMode, make: (s: IDBObjectStore) => IDBRequest, fallback: R): Promise<R> {
   const d = await db();
-  if (!d) return undefined;
+  if (!d) return fallback;
   return new Promise((resolve) => {
-    const req = d.transaction(STORE, 'readonly').objectStore(STORE).get(key);
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => resolve(undefined);
+    try {
+      const tx = d.transaction(STORE, mode);
+      const req = make(tx.objectStore(STORE));
+      tx.oncomplete = () => resolve(mode === 'readonly' ? (req.result as R) : fallback);
+      tx.onerror = () => resolve(fallback);
+      tx.onabort = () => resolve(fallback);
+    } catch (err) {
+      if (err instanceof DOMException && err.name === 'InvalidStateError') dbPromise = null; // closed: reopen next time
+      resolve(fallback);
+    }
   });
 }
 
-async function idbPut(key: string, value: { t: number; data: unknown }): Promise<void> {
-  const d = await db();
-  if (!d) return;
-  await new Promise<void>((resolve) => {
-    const tx = d.transaction(STORE, 'readwrite');
-    tx.objectStore(STORE).put(value, key);
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => resolve();
-  });
-}
+const idbGet = (key: string) => inStore<{ t: number; data: unknown } | undefined>('readonly', (s) => s.get(key), undefined);
+
+const idbPut = (key: string, value: { t: number; data: unknown }) => inStore<void>('readwrite', (s) => s.put(value, key), undefined);
 
 export async function clearCache(): Promise<void> {
   mem.clear();
   manifest = null;
-  const d = await db();
-  if (!d) return;
-  await new Promise<void>((resolve) => {
-    const tx = d.transaction(STORE, 'readwrite');
-    tx.objectStore(STORE).clear();
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => resolve();
-  });
+  await inStore<void>('readwrite', (s) => s.clear(), undefined);
 }
 
 // --- concurrency limiter with two priorities ---
