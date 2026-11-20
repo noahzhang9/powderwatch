@@ -13,7 +13,7 @@ import type { Fmt } from '../../lib/prefs';
 import { NOT_IN_SNAPSHOT, isNotInSnapshot } from '../../lib/cache';
 import { RUN_CHANGE_OFFSET_S, runChangeModels } from '../../lib/requests';
 import { isNum } from '../../lib/stats';
-import { ago, localHourLabel, nowUnix, runLabel } from '../../lib/time';
+import { ago, localDate, localHourLabel, nowUnix, runHour, runLabel, zoneName } from '../../lib/time';
 import { WPC_ATTRIBUTION, WPC_CATEGORY_LABEL, WPC_PAGE, WPC_THRESHOLDS_IN, type WpcCategory, type WpcFile, type WpcPeriod } from '../../lib/wpc';
 import { midBand } from '../../lib/requests';
 import { useSinceLastVisit } from '../../lib/visits';
@@ -343,7 +343,7 @@ export function RunChangeSummary({ rc, fmt, onShowTable }: { rc: RunChangeState;
 }
 
 /** The full run-to-run table: latest run time, 3- and 7-day totals and their change. */
-export function RunChangeTable({ rc, fmt }: { rc: RunChangeState; fmt: Fmt }) {
+export function RunChangeTable({ rc, fmt, tz }: { rc: RunChangeState; fmt: Fmt; tz: string }) {
   const pending = rc.loading;
   return (
     <Section
@@ -354,13 +354,13 @@ export function RunChangeTable({ rc, fmt }: { rc: RunChangeState; fmt: Fmt }) {
       <div className="overflow-x-auto">
         <table className="data">
           <thead>
-            <tr><th>Model</th><th>Latest run</th><th>Next 3 days</th><th>Δ 3 days</th><th>Next 7 days</th><th>Δ 7 days</th></tr>
+            <tr><th>Model</th><th>Latest run ({zoneName(tz, nowUnix())})</th><th>Next 3 days</th><th>Δ 3 days</th><th>Next 7 days</th><th>Δ 7 days</th></tr>
           </thead>
           <tbody>
             {rc.rows.map((r) => (
               <tr key={r.id}>
                 <td>{MODELS[r.id].label}</td>
-                <td>{r.init ? runLabel(r.init) : '—'}</td>
+                <td>{r.init ? runLabel(r.init, tz) : '—'}</td>
                 <td>{fmt.snow(r.c3)}</td>
                 <td>{pending ? '…' : <RunDelta a={r.c3} b={r.p3} fmt={fmt} />}</td>
                 <td>{fmt.snow(r.c7)}</td>
@@ -377,14 +377,18 @@ export function RunChangeTable({ rc, fmt }: { rc: RunChangeState; fmt: Fmt }) {
 /** A run that started more than this long ago is flagged stale. */
 const STALE_RUN_H = 18;
 
-/** "12Z–23Z" on one UTC day, "Nov 19 18Z – Nov 20 06Z" across two; a single run time when they all match. */
-function runRange(inits: number[]): string {
+/**
+ * Run start times in the resort's local time: "4 AM–3 PM PST" on one local day, "Nov 19, 10 PM – Nov 20, 4 AM PST"
+ * across two; a single time when they all match.
+ */
+function runRange(inits: number[], tz: string): string {
   const lo = Math.min(...inits);
   const hi = Math.max(...inits);
-  const hour = (u: number) => runLabel(u).split(' ').at(-1);
-  if (lo === hi) return hour(lo)!;
-  const day = (u: number) => new Date(u * 1000).toISOString().slice(0, 10);
-  return day(lo) === day(hi) ? `${hour(lo)}–${hour(hi)}` : `${runLabel(lo)} – ${runLabel(hi)}`;
+  const zone = zoneName(tz, hi);
+  if (lo === hi) return `${runHour(lo, tz)} ${zone}`;
+  return localDate(lo, tz) === localDate(hi, tz)
+    ? `${runHour(lo, tz)}–${runHour(hi, tz)} ${zone}`
+    : `${runLabel(lo, tz)} – ${runLabel(hi, tz)} ${zone}`;
 }
 
 /** Whole hours since `unix`, as "<1" under an hour. */
@@ -394,7 +398,7 @@ const hoursOld = (now: number, unix: number) => (now - unix < 3600 ? '<1' : Stri
  * Model run times in one line: the range of run times, their ages and how many are stale
  * (started more than `STALE_RUN_H` ago). Each model's run sits behind the line's disclosure.
  */
-export function RunsRow({ ids, meta }: { ids: string[]; meta?: Record<string, RunMeta | null> }) {
+export function RunsRow({ ids, meta, tz }: { ids: string[]; meta?: Record<string, RunMeta | null>; tz: string }) {
   if (!meta) return null;
   const now = Date.now() / 1000;
   const runs = ids.flatMap((id) => (meta[id] ? [{ id, m: meta[id] }] : []));
@@ -408,10 +412,10 @@ export function RunsRow({ ids, meta }: { ids: string[]; meta?: Record<string, Ru
     <details className="group/runs text-[12px] text-ink-2 mt-2">
       <summary
         className="inline-flex flex-wrap items-baseline gap-x-1.5 rounded-sm hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
-        title={`Latest run of each model (start time in UTC) and how long ago it started. Runs that started more than ${STALE_RUN_H} h ago are flagged stale.`}
+        title={`Latest run of each model (start time in the resort's local time) and how long ago it started. Runs that started more than ${STALE_RUN_H} h ago are flagged stale.`}
       >
         <span className="text-ink-3">Runs:</span>
-        <span>{runRange(inits)}</span>
+        <span>{runRange(inits, tz)}</span>
         <span aria-hidden className="text-ink-3">·</span>
         <span>{youngest === oldest ? youngest : `${youngest}–${oldest}`} h old</span>
         {stale > 0 && (
@@ -429,7 +433,7 @@ export function RunsRow({ ids, meta }: { ids: string[]; meta?: Record<string, Ru
       <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1" aria-label="Model run times">
         {runs.map(({ id, m }) => (
           <span key={id} title={`published ${ago(m.availableUnix)}`}>
-            {MODELS[id]?.label ?? id} {runLabel(m.initUnix).split(' ').at(-1)}
+            {MODELS[id]?.label ?? id} {runHour(m.initUnix, tz)}
             <span className="text-ink-3"> ({ago(m.initUnix).replace(' ago', '')})</span>
             {isStale(m) && <b> ⚠ stale</b>}
           </span>

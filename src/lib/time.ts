@@ -54,11 +54,20 @@ export function shortDate(iso: string): string {
   return new Date(`${iso}T12:00:00Z`).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
 }
 
-/** 'Nov 19 12Z' style label for a model run time. */
-export function runLabel(unix: number): string {
-  const d = new Date(unix * 1000);
-  const md = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
-  return `${md} ${String(d.getUTCHours()).padStart(2, '0')}Z`;
+/** A model run's start in the resort's local time: 'Nov 19, 4 AM' (pair it with zoneName once per view). */
+export function runLabel(unix: number, tz: string): string {
+  return new Date(unix * 1000).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', timeZone: tz });
+}
+
+/** A model run's start hour in the resort's local time: '4 AM'. */
+export function runHour(unix: number, tz: string): string {
+  return new Date(unix * 1000).toLocaleString('en-US', { hour: 'numeric', timeZone: tz });
+}
+
+/** The time zone's short name at `unix`: 'PST' / 'PDT' for the Pacific resorts, 'GMT+1' / 'GMT+2' for Verbier. */
+export function zoneName(tz: string, unix: number): string {
+  return new Intl.DateTimeFormat('en-US', { timeZone: tz, timeZoneName: 'short' }).formatToParts(new Date(unix * 1000))
+    .find((p) => p.type === 'timeZoneName')?.value ?? tz;
 }
 
 /** Human "3 h ago" for a unix time. */

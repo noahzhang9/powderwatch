@@ -118,9 +118,9 @@ export function StormView({ resort }: { resort: Resort }) {
         <details className="mt-3">
           <summary className="btn">Models ({data.models.length}) ▾</summary>
           <div className="mt-2">{chips}</div>
-          <RunsRow ids={resort.models} meta={meta.data} />
+          <RunsRow ids={resort.models} meta={meta.data} tz={resort.tz} />
         </details>
-      ) : <div className="mt-3">{chips}<RunsRow ids={resort.models} meta={meta.data} /></div>)}
+      ) : <div className="mt-3">{chips}<RunsRow ids={resort.models} meta={meta.data} tz={resort.tz} /></div>)}
       <div aria-live="polite">
         {fc.error && <RequestError what="Forecast" error={fc.error} retry={fc.retry} />}
         {!data && !fc.error && <Loading what="model forecasts" />}
@@ -152,7 +152,7 @@ export function StormView({ resort }: { resort: Resort }) {
                 <DailySnowChart data={data} days={days} dists={dists} driven={driven} centres={centres} phases={phases} visible={visible} resort={resort} fmt={fmt} narrow={narrow} rawSnow={rawSnow} today={today} nbm={nbmData} />
                 <RainStrip days={days} fmt={fmt} />
                 <PhaseGustStrip days={days} phases={phases} resort={resort} fmt={fmt} narrow={narrow} />
-                <DailyLegend fmt={fmt} nbm={nbmData} />
+                <DailyLegend fmt={fmt} nbm={nbmData} tz={resort.tz} />
                 {official && nbm.error && <RequestError what={NBM.label} error={nbm.error} retry={nbm.retry} />}
               </>
             ) : (
@@ -169,7 +169,7 @@ export function StormView({ resort }: { resort: Resort }) {
             open={more === '1'}
             onToggle={(o) => setMore(o ? '1' : '0')}
           >
-            <div id={RUN_TABLE_ID} className="scroll-mt-4"><RunChangeTable rc={runChange} fmt={fmt} /></div>
+            <div id={RUN_TABLE_ID} className="scroll-mt-4"><RunChangeTable rc={runChange} fmt={fmt} tz={resort.tz} /></div>
             <LevelsSection data={data} visible={visible} resort={resort} fmt={fmt} />
             <TempSection data={data} visible={visible} band={band} tz={resort.tz} fmt={fmt} />
             <EnsembleSection ens={ens.data} loading={ens.loading} error={undefined} data={data} now={now} band={band} resort={resort} fmt={fmt} />

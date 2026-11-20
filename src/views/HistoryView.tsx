@@ -12,13 +12,13 @@ import { fetchSingleRun } from '../lib/openmeteo';
 import { alpha, slotColor, type ChartPalette } from '../lib/palette';
 import { useFmt, type Fmt } from '../lib/prefs';
 import { isNum } from '../lib/stats';
-import { addDays, dayLabel, localMidnightUnix, nowUnix, runLabel, todayIn } from '../lib/time';
+import { addDays, dayLabel, localMidnightUnix, nowUnix, runLabel, todayIn, zoneName } from '../lib/time';
 import { useNarrow } from '../hooks/useNarrow';
 import { useHashParam } from '../hooks/useRoute';
 
 const shortDayFromUnix = (u: number) => new Date(u * 1000).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
 
-const RUNS_BACK = 14; // 7 days of 00Z/12Z runs
+const RUNS_BACK = 14; // 7 days of the 00Z and 12Z runs
 
 interface RunResult {
   modelId: string;
@@ -122,7 +122,7 @@ export function HistoryView({ resort }: { resort: Resort }) {
       </div>
       <Section
         title={`How the forecast for ${dayLabel(start)} – ${dayLabel(addDays(start, len - 1))} changed`}
-        subtitle={`Snowfall forecast for this ${len}-day window at ${bandInText(band)} (${fmt.elev(band.elevation)}), by model run (00Z and 12Z runs, last 7 days). Each point is one run; read left to right to see a storm appear, vanish or return. Past runs come from Open-Meteo's single-run archive, processed with the same snow physics as live forecasts.`}
+        subtitle={`Snowfall forecast for this ${len}-day window at ${bandInText(band)} (${fmt.elev(band.elevation)}), by model run (two a day, last 7 days; run times in ${zoneName(resort.tz, nowUnix())}). Each point is one run; read left to right to see a storm appear, vanish or return. Past runs come from Open-Meteo's single-run archive, processed with the same snow physics as live forecasts.`}
       >
         {runs.error && <Notice tone="error">{runs.error.message}</Notice>}
         {runs.data?.notInSnapshot ? (
@@ -134,7 +134,7 @@ export function HistoryView({ resort }: { resort: Resort }) {
           runs.data?.notInSnapshot ? null : <Notice>No archived runs cover this window yet. Pick a window within the next ~10 days.</Notice>
         ) : (
           <>
-            <TrendChart runs={runResults} fmt={fmt} />
+            <TrendChart runs={runResults} tz={resort.tz} fmt={fmt} />
             <Summary runs={runResults} fmt={fmt} />
           </>
         )}
@@ -158,7 +158,7 @@ export function HistoryView({ resort }: { resort: Resort }) {
             </Section>
           )}
           <Section title="Run table">
-            <RunTable runs={runResults} fmt={fmt} />
+            <RunTable runs={runResults} tz={resort.tz} fmt={fmt} />
           </Section>
         </Disclosure>
       )}
@@ -166,7 +166,7 @@ export function HistoryView({ resort }: { resort: Resort }) {
   );
 }
 
-function TrendChart({ runs, fmt }: { runs: RunResult[]; fmt: Fmt }) {
+function TrendChart({ runs, tz, fmt }: { runs: RunResult[]; tz: string; fmt: Fmt }) {
   const narrow = useNarrow();
   const option = useCallback(
     (p: ChartPalette): EChartsCoreOption => {
@@ -174,13 +174,13 @@ function TrendChart({ runs, fmt }: { runs: RunResult[]; fmt: Fmt }) {
       const ids = Array.from(new Set(runs.map((r) => r.modelId)));
       return {
         ...base,
-        xAxis: { ...(base.xAxis as object), type: 'time', minInterval: 86_400_000, splitNumber: narrow ? 3 : 7, axisLabel: { color: p.ink3, fontSize: 11, formatter: (v: number) => (narrow ? shortDayFromUnix(v / 1000) : runLabel(v / 1000)) } },
+        xAxis: { ...(base.xAxis as object), type: 'time', minInterval: 86_400_000, splitNumber: narrow ? 3 : 7, axisLabel: { color: p.ink3, fontSize: 11, formatter: (v: number) => (narrow ? shortDayFromUnix(v / 1000) : runLabel(v / 1000, tz)) } },
         yAxis: { ...(base.yAxis as object), type: 'value', name: fmt.snowUnit, min: 0, nameTextStyle: { color: p.ink3 } },
         tooltip: {
           ...(base.tooltip as object),
           trigger: 'item',
           formatter: (x: { seriesName: string; value: [number, number]; color: string }) =>
-            tipHeader(`${x.seriesName} · run ${runLabel(x.value[0] / 1000)}`, p) + tipRow(x.color, 'window snowfall', `${x.value[1].toFixed(fmt.units === 'imperial' ? 1 : 0)} ${fmt.snowUnit}`, p),
+            tipHeader(`${x.seriesName} · run ${runLabel(x.value[0] / 1000, tz)}`, p) + tipRow(x.color, 'window snowfall', `${x.value[1].toFixed(fmt.units === 'imperial' ? 1 : 0)} ${fmt.snowUnit}`, p),
         },
         series: ids.map((id) => ({
           type: 'line', name: MODELS[id].label, symbol: 'circle', symbolSize: 9,
@@ -252,9 +252,9 @@ function EvolutionChart({ runs, from, to, tz, fmt }: { runs: RunResult[]; from: 
           const previous = i === runs.length - 2;
           const endTotal = pts.length ? pts[pts.length - 1][1] : null;
           return {
-            type: 'line', name: `run ${runLabel(r.run)}`, showSymbol: false,
+            type: 'line', name: `run ${runLabel(r.run, tz)}`, showSymbol: false,
             lineStyle: { width: latest ? 3 : previous ? 2 : 1.5, color }, itemStyle: { color }, z: latest ? 5 : previous ? 4 : 2, data: pts,
-            endLabel: (latest || previous) && !narrow ? { show: true, color: p.ink1, fontSize: 11, fontWeight: latest ? 600 : 400, formatter: `${runLabel(r.run)} · ${endTotal == null ? '—' : `${endTotal.toFixed(fmt.units === 'imperial' ? 1 : 0)} ${fmt.snowUnit}`}` } : undefined,
+            endLabel: (latest || previous) && !narrow ? { show: true, color: p.ink1, fontSize: 11, fontWeight: latest ? 600 : 400, formatter: `${runLabel(r.run, tz)} · ${endTotal == null ? '—' : `${endTotal.toFixed(fmt.units === 'imperial' ? 1 : 0)} ${fmt.snowUnit}`}` } : undefined,
             areaStyle: latest ? { color: alpha(color, 0.08) } : undefined,
           };
         }),
@@ -265,13 +265,13 @@ function EvolutionChart({ runs, from, to, tz, fmt }: { runs: RunResult[]; from: 
   return <Chart option={option} height={260} ariaLabel="Storm evolution by run" />;
 }
 
-function RunTable({ runs, fmt }: { runs: RunResult[]; fmt: Fmt }) {
+function RunTable({ runs, tz, fmt }: { runs: RunResult[]; tz: string; fmt: Fmt }) {
   const rows = [...runs].sort((a, b) => (a.modelId === b.modelId ? b.run - a.run : a.modelId.localeCompare(b.modelId)));
   return (
     <div className="overflow-x-auto">
       <table className="data">
         <thead>
-          <tr><th>Model</th><th>Run</th><th>Lead to window</th><th>Snow</th><th>Change vs prior run</th><th>Precip (water)</th><th>Max freezing level</th></tr>
+          <tr><th>Model</th><th>Run ({zoneName(tz, nowUnix())})</th><th>Lead to window</th><th>Snow</th><th>Change vs prior run</th><th>Precip (water)</th><th>Max freezing level</th></tr>
         </thead>
         <tbody>
           {rows.map((r) => {
@@ -280,7 +280,7 @@ function RunTable({ runs, fmt }: { runs: RunResult[]; fmt: Fmt }) {
             return (
               <tr key={`${r.modelId}-${r.run}`}>
                 <td>{MODELS[r.modelId].label}</td>
-                <td>{runLabel(r.run)}</td>
+                <td>{runLabel(r.run, tz)}</td>
                 <td>{r.leadDays.toFixed(1)} d</td>
                 <td><b>{fmt.snow(r.snowCm)}</b></td>
                 <td>{delta == null ? '—' : `${delta >= 0 ? '+' : '−'}${fmt.snow(Math.abs(delta))}`}</td>

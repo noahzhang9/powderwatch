@@ -13,7 +13,7 @@ import type { DayDist } from '../../lib/ensemble';
 import { DRIVEN_MIN_CM, DRIVEN_SHARE, LOW_CENTRES, type DailyRow, type DerivedHourly, type DrivenDay, type Phase } from '../../lib/forecast';
 import { SNOW_CLASSES_CM, alpha, slotColor, snowClass, type ChartPalette } from '../../lib/palette';
 import type { Fmt } from '../../lib/prefs';
-import { dayLabel, runLabel, shortDate } from '../../lib/time';
+import { dayLabel, runHour, shortDate } from '../../lib/time';
 
 /** Shared plot margins so every strip lines up with the bars. */
 const GRID_L = 52;
@@ -290,7 +290,7 @@ export function PhaseGustStrip({ days, phases, resort, fmt, narrow }: Pick<Daily
   return <Chart option={option} height={22 * (bands.length + 1) + 8} ariaLabel="Precipitation type by elevation and peak gust per day" />;
 }
 
-export function DailyLegend({ fmt, nbm }: { fmt: Fmt; nbm?: NbmForecast | null }) {
+export function DailyLegend({ fmt, nbm, tz }: { fmt: Fmt; nbm?: NbmForecast | null; tz: string }) {
   const bounds = SNOW_CLASSES_CM.map((b) => {
     const v = fmt.snowVal(b)!;
     return fmt.units === 'imperial' ? Math.round(v) : Math.round(v * 10) / 10;
@@ -319,7 +319,7 @@ export function DailyLegend({ fmt, nbm }: { fmt: Fmt; nbm?: NbmForecast | null }
       {nbm && (
         <span className="flex items-center gap-1" title={`${NBM.long}. ${NBM.blurb} Not part of the blend.`}>
           <span aria-hidden style={{ width: 14, height: 4, background: 'var(--ink-1)', borderRadius: 1, boxShadow: '0 0 0 1px var(--surface-1)', display: 'inline-block' }} />
-          {NBM.label}{nbm.run ? ` ${runLabel(nbm.run.initUnix).split(' ').at(-1)}` : ''}: official guidance, its own snowfall
+          {NBM.label}{nbm.run ? ` (${runHour(nbm.run.initUnix, tz)} run)` : ''}: official guidance, its own snowfall
         </span>
       )}
     </div>
