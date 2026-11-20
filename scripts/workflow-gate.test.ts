@@ -31,6 +31,7 @@ interface Case {
   fullInput?: boolean;
   /** Deployed manifest's generatedAt; undefined: no manifest. */
   generatedAt?: number;
+  pingUrl?: string;
 }
 
 function gate(c: Case) {
@@ -43,11 +44,12 @@ function gate(c: Case) {
     env: {
       PATH: process.env.PATH, GITHUB_OUTPUT: out, NOW_S: String(c.now), MANIFEST_URL: `file://${manifest}`,
       EVENT: c.event, SCHEDULE: c.schedule ?? '', FULL_INPUT: c.fullInput ? 'true' : c.event === 'workflow_dispatch' ? 'false' : '',
+      HC_PING_URL: c.pingUrl ?? '',
     },
   });
   expect(r.status, r.stderr).toBe(0);
   const vals = Object.fromEntries(readFileSync(out, 'utf-8').trim().split('\n').map((l) => l.split('=')));
-  return { run: vals.run, full: vals.full };
+  return { run: vals.run, full: vals.full, stdout: r.stdout };
 }
 
 describe.skipIf(!usable)('workflow gate (refresh-and-deploy.yml)', () => {
@@ -84,4 +86,9 @@ describe.skipIf(!usable)('workflow gate (refresh-and-deploy.yml)', () => {
     expect(gate({ event: 'schedule', schedule: SUNDAY, now: SUN_0020 + 5400, generatedAt: SUN_0020 + 300 }).run).toBe('0');
   });
 
+  it('pings the dead man\'s switch only from a skipped run', () => {
+    const missing = `file://${join(DIR, 'no-such-ping')}`; // a failed ping is visible as the warning
+    expect(gate({ event: 'schedule', schedule: EVERY_4H, now: TUE_0820, generatedAt: TUE_0820 - 600, pingUrl: missing }).stdout).toContain('healthcheck ping failed');
+    expect(gate({ event: 'schedule', schedule: EVERY_4H, now: TUE_0820, pingUrl: missing }).stdout).not.toContain('healthcheck ping');
+  });
 });

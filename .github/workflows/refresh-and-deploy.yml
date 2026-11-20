@@ -7,9 +7,9 @@
 # GitHub's scheduler is best-effort (slots get dropped or delayed by hours), so an external cron
 # (cron-job.org, README "Reliable scheduling") also dispatches this workflow every 4 h. The gate job
 # skips a run when the deployed snapshot is under 2 h old, so a slot both triggers fire for spends the
-# Open-Meteo budget once.
+# Open-Meteo budget once; deploy (or a skipped run) pings a healthchecks.io dead man's switch.
 #
-# Jobs are split so third-party npm code never runs where a write-capable token exists:
+# Jobs are split so third-party npm code never runs where a write-capable token or a secret exists:
 #   gate (no token, no checkout, no npm) → refresh (read-only, npm scripts disabled) → commit (write, no npm)
 #   → build (read-only: test, build, forecast snapshot into dist/) → deploy (Pages only)
 #                                                                  → archive (write, no npm: verification
@@ -39,7 +39,7 @@ concurrency:
 
 jobs:
   # Decides whether this run refreshes at all, and in which mode. Reads only the deployed site's public
-  # manifest; it checks out nothing and runs no npm code.
+  # manifest; holds the healthcheck ping URL secret, so it checks out nothing and runs no npm code.
   gate:
     runs-on: ubuntu-latest
     timeout-minutes: 3
@@ -54,6 +54,7 @@ jobs:
           EVENT: ${{ github.event_name }}
           SCHEDULE: ${{ github.event.schedule }}
           FULL_INPUT: ${{ inputs.full_refresh }}
+          HC_PING_URL: ${{ secrets.HEALTHCHECK_PING_URL }}
         run: |
           # The decision logic is tested by scripts/workflow-gate.test.ts (it runs this script); keep the two in step.
           now=${NOW_S:-$(date -u +%s)}
@@ -84,6 +85,10 @@ jobs:
           fi
           echo "run=$run" >> "$GITHUB_OUTPUT"
           echo "full=$full" >> "$GITHUB_OUTPUT"
+          # A skipped run still means the site is fresh: tell the dead man's switch.
+          if [ "$run" = 0 ] && [ -n "$HC_PING_URL" ]; then
+            curl -fsS -m 10 --retry 3 -o /dev/null "$HC_PING_URL" || echo "::warning::healthcheck ping failed"
+          fi
 
   refresh:
     needs: gate
@@ -223,6 +228,14 @@ jobs:
     steps:
       - id: deployment
         uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
+      # Dead man's switch (healthchecks.io, README): alerts when no deploy or skipped run pings for ~9 h.
+      # This job runs no npm code; without the secret the step does nothing.
+      - name: Ping the healthcheck
+        env:
+          HC_PING_URL: ${{ secrets.HEALTHCHECK_PING_URL }}
+        run: |
+          if [ -z "$HC_PING_URL" ]; then echo "HEALTHCHECK_PING_URL not set: no ping"; exit 0; fi
+          curl -fsS -m 10 --retry 3 -o /dev/null "$HC_PING_URL" || echo "::warning::healthcheck ping failed"
 
   # Forecast-verification archive. Commits the build job's record to the data/verification branch (never
   # main), append-only: a cycle already archived by an earlier run is kept as it is. Runs no npm code, and
