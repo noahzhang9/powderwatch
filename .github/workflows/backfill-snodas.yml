@@ -1,0 +1,135 @@
+# SNODAS history for the US resorts' modelled points (public/data/obs/snodas-*.json). Manual only: run it from the
+# Actions tab ("backfill-snodas" → Run workflow). Never scheduled, never on push or pull requests.
+#
+# A season (Oct 1 – Jun 30) is ~270 daily NSIDC tars, about 3–4 GB, so 22 seasons are 60–90 GB of downloads:
+# that happens here, on GitHub's runners, never on a laptop.
+#
+# Jobs are split as in refresh-and-deploy.yml, so npm code never runs where a write-capable token exists:
+#   plan (no token, no checkout: checks the inputs → season list)
+#   → extract (read-only, one job per season, at most two at a time; each downloads its days one by one and keeps
+#     only the depth and SWE cells) → one artifact per season
+#   → commit (write, no npm: scripts/validate_obs.py validates the artifacts, merges them day by day into
+#     public/data/obs and re-serialises them; then one commit to main)
+# Idempotent and resumable: extract skips days main already has, a season that hits its deadline hands over what it
+# finished, and merging the same days twice changes nothing. To finish an interrupted backfill, run it again.
+name: backfill-snodas
+
+on:
+  workflow_dispatch:
+    inputs:
+      first_season:
+        description: 'First season, by the year it starts (2004 = Oct 2004 – Jun 2005; NSIDC advises against data before Oct 2004)'
+        required: true
+        default: '2004'
+      last_season:
+        description: 'Last season (blank: the current one)'
+        required: false
+        default: ''
+
+permissions: {} # granted per job below
+
+# One backfill at a time; a second dispatch waits for the first.
+concurrency:
+  group: backfill-snodas
+  cancel-in-progress: false
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    permissions: {}
+    outputs:
+      seasons: ${{ steps.plan.outputs.seasons }}
+    steps:
+      - name: Check the inputs and list the seasons
+        id: plan
+        env:
+          FIRST: ${{ inputs.first_season }}
+          LAST: ${{ inputs.last_season }}
+        run: |
+          set -euo pipefail
+          year=$(date -u +%Y); month=$(date -u +%-m)
+          current=$(( month >= 7 ? year : year - 1 ))
+          last="${LAST:-$current}"
+          if ! [[ "$FIRST" =~ ^20[0-9]{2}$ && "$last" =~ ^20[0-9]{2}$ ]]; then
+            echo "::error::seasons are four-digit years (20xx)"; exit 1
+          fi
+          if (( FIRST < 2003 || FIRST > last || last > current )); then
+            echo "::error::need 2003 <= first_season <= last_season <= $current"; exit 1
+          fi
+          echo "seasons=[$(seq "$FIRST" "$last" | paste -sd, -)]" >> "$GITHUB_OUTPUT"
+
+  extract:
+    needs: plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      max-parallel: 2 # at most two requests to NSIDC at once (each job fetches its days one at a time)
+      matrix:
+        season: ${{ fromJSON(needs.plan.outputs.seasons) }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --ignore-scripts --registry=https://registry.npmjs.org
+      - name: Extract the season's SNODAS cells (skips days main already has)
+        env:
+          SEASON: ${{ matrix.season }}
+          PW_CONTACT: ${{ github.server_url }}/${{ github.repository }}
+        run: npm run backfill:snodas -- --season "$SEASON" --skip-existing --deadline-min 130 --out "$RUNNER_TEMP/snodas"
+      # Also after a failed or timed-out extract: the commit job merges whatever days it finished.
+      - if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: snodas-${{ matrix.season }}
+          path: ${{ runner.temp }}/snodas/*.json
+          retention-days: 7 # a failed commit job can be re-run within a week
+          if-no-files-found: ignore
+
+  commit:
+    needs: [plan, extract]
+    # Runs when some seasons failed too, so the finished ones are kept.
+    if: ${{ !cancelled() && needs.plan.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write # push the merged history to main; this job runs no npm code
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: snodas-*
+          path: ${{ runner.temp }}/incoming
+      - name: Validate, merge and commit to main (never copy raw bytes)
+        run: |
+          set -uo pipefail
+          shopt -s nullglob
+          dirs=("$RUNNER_TEMP"/incoming/snodas-*)
+          if [ ${#dirs[@]} -eq 0 ]; then echo "nothing to merge: main already has every requested day"; exit 0; fi
+          cp scripts/validate_obs.py "$RUNNER_TEMP/validate_obs.py"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          # The scheduled commit job may push in between: then start again from the new main (its SNODAS files are merged, not replaced).
+          for attempt in 1 2 3; do
+            python3 -I "$RUNNER_TEMP/validate_obs.py" --backfill "${dirs[@]}" public/data/obs || exit 1
+            if [ -z "$(git status --porcelain public/data/obs)" ]; then echo "main already has these days"; exit 0; fi
+            seasons=$(for d in "${dirs[@]}"; do echo "${d##*/snodas-}"; done | sort -n | paste -sd ' ')
+            git add public/data/obs
+            git commit -q -m "chore(data): Backfill SNODAS history" -m "Seasons $seasons (each Oct 1 - Jun 30), from NSIDC G02158."
+            if git pull --rebase origin main && git push origin HEAD:main; then exit 0; fi
+            git rebase --abort 2>/dev/null || true
+            git fetch origin main
+            git reset --hard origin/main
+            sleep $(( attempt * 20 ))
+          done
+          echo "::error::could not push after 3 attempts; re-run this job"
+          exit 1

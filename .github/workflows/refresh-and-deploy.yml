@@ -9,6 +9,7 @@
 #   → build (read-only: test, build, forecast snapshot into dist/) → deploy (Pages only)
 #                                                                  → archive (write, no npm: verification
 #                                                                    record → data/verification branch)
+# SNODAS history (public/data/obs/snodas-*.json) comes from the manual backfill-snodas.yml; refresh adds only new days.
 name: refresh-and-deploy
 
 on:
@@ -88,53 +89,11 @@ jobs:
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: obs
-          path: incoming
+          path: ${{ runner.temp }}/incoming
+      # Names, shape, finite bounded numbers; SNODAS files are merged day by day with main's copy, so a refresh
+      # that read them before a backfill commit landed can't drop the backfilled history.
       - name: Validate incoming files and re-serialise them (never copy raw bytes)
-        run: |
-          python3 - <<'PY'
-          import json, os, re, sys
-          DATE = re.compile(r'\d{4}-\d{2}-\d{2}')
-          STAMP = re.compile(r'\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z')
-          BOUNDS = {'depthCm': 1500, 'sweMm': 5000, 'newSnowCm': 300}
-          allowed = {'id', 'updated', 'start', 'depthCm', 'sweMm', 'newSnowCm', 'lastDepthDate', 'lastSweDate'}
-          existing = set(os.listdir('public/data/obs'))
-          def fail(msg):
-              sys.exit(f'rejected: {msg}')
-          def reject_constant(c):
-              fail(f'non-finite number {c}')
-          for name in sorted(os.listdir('incoming')):
-              path = os.path.join('incoming', name)
-              if not re.fullmatch(r'[A-Za-z0-9-]+\.json', name) or name not in existing:
-                  fail(f'unexpected file {name}')
-              if os.path.getsize(path) > 2_000_000:
-                  fail(f'{name} is larger than 2 MB')
-              with open(path) as fh:
-                  f = json.load(fh, parse_constant=reject_constant)
-              if not isinstance(f, dict) or set(f) - allowed or f.get('id') + '.json' != name:
-                  fail(f'unexpected structure in {name}')
-              if not (isinstance(f.get('start'), str) and DATE.fullmatch(f['start'])):
-                  fail(f'bad start date in {name}')
-              if not (isinstance(f.get('updated'), str) and STAMP.fullmatch(f['updated'])):
-                  fail(f'bad updated timestamp in {name}')
-              for k in ('lastDepthDate', 'lastSweDate'):
-                  if f.get(k) is not None and not (isinstance(f[k], str) and DATE.fullmatch(f[k])):
-                      fail(f'bad {k} in {name}')
-              lengths = set()
-              for k, hi in BOUNDS.items():
-                  v = f.get(k)
-                  if v is None and k != 'depthCm':
-                      continue
-                  if not isinstance(v, list):
-                      fail(f'bad series {k} in {name}')
-                  for x in v:
-                      if x is not None and (isinstance(x, bool) or not isinstance(x, (int, float)) or not 0 <= x <= hi):
-                          fail(f'implausible value {x!r} in {k} of {name}')
-                  lengths.add(len(v))
-              if len(lengths) != 1:
-                  fail(f'series lengths differ in {name}')
-              with open(os.path.join('public/data/obs', name), 'w') as out:
-                  json.dump(f, out, allow_nan=False, separators=(',', ':'))
-          PY
+        run: python3 -I scripts/validate_obs.py "$RUNNER_TEMP/incoming" public/data/obs
       - name: Commit if any reading changed
         run: |
           if [ -n "$(git status --porcelain public/data/obs)" ]; then

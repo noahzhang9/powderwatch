@@ -3,9 +3,13 @@
  * resort, NOT resort-reported base depths — the UI always labels them as such.
  * Order within a resort is the preference order for the dashboard headline
  * (first station that reported in the last few days wins).
+ *
+ * SNODAS_POINTS (below) are modelled pseudo-stations at the US resorts' own bands. They share the
+ * station file format but are not in STATIONS: only the Snowpack tab offers them, as extra choices.
  */
+import { RESORTS, type BandKey } from './resorts';
 
-export type StationSource = 'SNOTEL' | 'ECCC' | 'BC-ASWS' | 'SLF' | 'MeteoSwiss';
+export type StationSource = 'SNOTEL' | 'ECCC' | 'BC-ASWS' | 'SLF' | 'MeteoSwiss' | 'SNODAS';
 
 export interface StationDef {
   id: string;
@@ -23,6 +27,13 @@ export interface StationDef {
   /** How the source defines a "daily" value. */
   dailyNote: string;
   caveat?: string;
+  /**
+   * A model estimate, not a measurement (SNODAS). Modelled points are never a default station, the dashboard
+   * headline or the Storm tracker's last 7 days, and the UI labels every value from them "modelled".
+   */
+  modelled?: boolean;
+  /** The point as it reads mid-sentence ("at Crystal mid-mountain"); modelled points only. */
+  inText?: string;
 }
 
 const SNOTEL_ATTR = 'USDA NRCS National Water and Climate Center (SNOTEL)';
@@ -137,3 +148,46 @@ export const STATIONS: StationDef[] = [
 ];
 
 export const stationsFor = (resortId: string) => STATIONS.filter((s) => s.resortId === resortId);
+
+// --- NOAA NOHRSC SNODAS (modelled, lower 48 only) ---
+
+export const SNODAS_PAGE = 'https://nsidc.org/data/g02158/versions/1';
+export const SNODAS_DOI = 'https://doi.org/10.7265/N5TB14TC';
+export const SNODAS_ATTR = 'NOAA NOHRSC SNODAS, via NSIDC (G02158)';
+/** NSIDC's requested citation (data set landing page), with the subset used. */
+export const SNODAS_CITATION =
+  'National Operational Hydrologic Remote Sensing Center. (2004). Snow Data Assimilation System (SNODAS) Data Products at NSIDC. ' +
+  '(G02158, Version 1). [Data Set]. Boulder, Colorado USA. National Snow and Ice Data Center. https://doi.org/10.7265/N5TB14TC. ' +
+  'Subset: masked daily snow depth (1036) and SWE (1034) at single 1 km cells. Accessed daily from 2026-11-20.';
+/** One sentence for the UI. */
+export const SNODAS_ABOUT =
+  "SNODAS is NOAA's daily snow model for the lower 48: a physically based snowpack model on a 1 km grid, driven by weather-model forcing and nudged toward satellite, airborne and ground snow observations.";
+/** First season (by the year it starts) the history backfill fetches: NSIDC advises against data before October 2004, when routine assimilation began. */
+export const SNODAS_FIRST_SEASON = 2004;
+/** Resorts inside SNODAS's masked (lower 48) grid. */
+export const SNODAS_RESORTS = ['crystal', 'snoqualmie', 'stevens'];
+
+const SNODAS_NAMES: Record<BandKey, [name: string, inText: string]> = {
+  base: ['Base area', 'base area'],
+  mid: ['Mid-mountain', 'mid-mountain'],
+  summit: ['Summit', 'summit'],
+};
+
+/** One modelled pseudo-station per band of each SNODAS resort, at the band's own coordinates and elevation. */
+export const SNODAS_POINTS: StationDef[] = RESORTS.filter((r) => SNODAS_RESORTS.includes(r.id)).flatMap((r) =>
+  r.bands.map((b): StationDef => {
+    const [name, inText] = b.key === 'summit' && b.inText ? [b.label, b.inText] : SNODAS_NAMES[b.key];
+    return {
+      id: `snodas-${r.id}-${b.key}`, resortId: r.id, name, inText, source: 'SNODAS', sourceId: 'G02158',
+      lat: b.lat, lon: b.lon, elevation: b.elevation, swe: true, modelled: true,
+      url: SNODAS_PAGE, attribution: SNODAS_ATTR,
+      dailyNote: 'Model state at 06:00 UTC (10 pm PST the evening before), for the 1 km cell containing this point.',
+      caveat: "SNODAS models the whole 1 km cell, whose average terrain can sit well above or below this band's elevation; it is not tuned to ski terrain.",
+    };
+  }),
+);
+
+export const snodasFor = (resortId: string) => SNODAS_POINTS.filter((s) => s.resortId === resortId);
+
+/** The Snowpack tab's choices: the measurement stations (the default comes from these), then the modelled points. */
+export const snowpackChoicesFor = (resortId: string) => [...stationsFor(resortId), ...snodasFor(resortId)];

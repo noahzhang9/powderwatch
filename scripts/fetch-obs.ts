@@ -10,18 +10,28 @@
  * ~6 weeks are fetched and merged in. FULL_REFRESH=1 re-downloads complete
  * histories (the scheduled workflow does this weekly).
  *
- *   npm run obs                      # all stations, incremental
+ * Also updates the modelled SNODAS points (SNODAS_POINTS): one NSIDC file per day serves all of
+ * them, and only days missing from the last SNODAS_LOOKBACK_DAYS are fetched, so a run downloads
+ * at most one or two files. FULL_REFRESH doesn't apply to them; their history comes from the
+ * backfill workflow (scripts/backfill-snodas.ts).
+ *
+ *   npm run obs                      # all stations and SNODAS points, incremental
  *   FULL_REFRESH=1 npm run obs       # full histories
  *   npm run obs -- slf-ATT2 snotel-642
+ *   npm run obs -- snodas            # the SNODAS points only
  *
- * Env: PW_CONTACT (URL added to the User-Agent), ARCHIVE_MAX_AGE_DAYS (BC archive cache age).
+ * Env: PW_CONTACT (URL added to the User-Agent), ARCHIVE_MAX_AGE_DAYS (BC archive cache age),
+ * SNODAS_LOOKBACK_DAYS (default 10).
  */
 import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { STATIONS, type StationDef } from '../src/config/stations';
+import { SNODAS_POINTS, STATIONS, type StationDef } from '../src/config/stations';
 import { SNAPSHOT_INTERVAL_H } from '../src/lib/cache';
 import type { StationFile } from '../src/lib/obs';
+import { addDays } from '../src/lib/time';
+import { fromFile, sameData, setVal, toFile, type Daily } from './obs-file';
+import { fetchSnodasDay } from './snodas';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const OUT = join(ROOT, 'public/data/obs');
@@ -32,8 +42,6 @@ const FULL = process.env.FULL_REFRESH === '1';
 const ARCHIVE_MAX_AGE_DAYS = Number(process.env.ARCHIVE_MAX_AGE_DAYS ?? 30);
 /** Incremental window: long enough to pick up late QC revisions. */
 const RECENT_DAYS = 45;
-
-type Daily = Map<string, { depth?: number; swe?: number; newSnow?: number }>;
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -66,13 +74,6 @@ async function cachedDownload(url: string, maxAgeDays: number): Promise<string> 
   await mkdir(CACHE, { recursive: true });
   await writeFile(file, text);
   return text;
-}
-
-function setVal(d: Daily, date: string, key: 'depth' | 'swe' | 'newSnow', v: number | null | undefined) {
-  if (v == null || !Number.isFinite(v)) return;
-  const e = d.get(date) ?? {};
-  e[key] = v;
-  d.set(date, e);
 }
 
 const median = (xs: number[]) => {
@@ -256,80 +257,97 @@ async function meteoswiss(st: StationDef, since: string | null): Promise<Daily> 
 }
 
 // ---------------------------------------------------------------- output
-const FETCHERS: Record<StationDef['source'], (s: StationDef, since: string | null) => Promise<Daily>> = {
+const FETCHERS: Partial<Record<StationDef['source'], (s: StationDef, since: string | null) => Promise<Daily>>> = {
   SNOTEL: snotel, ECCC: eccc, 'BC-ASWS': bcAsws, SLF: slf, MeteoSwiss: meteoswiss,
 };
 
-function fromFile(f: StationFile): Daily {
-  const d: Daily = new Map();
-  const put = (arr: (number | null)[] | null | undefined, key: 'depth' | 'swe' | 'newSnow') =>
-    arr?.forEach((v, i) => {
-      if (v == null) return;
-      const date = new Date(Date.parse(`${f.start}T00:00:00Z`) + i * 86_400_000).toISOString().slice(0, 10);
-      setVal(d, date, key, v);
-    });
-  put(f.depthCm, 'depth');
-  put(f.sweMm, 'swe');
-  put(f.newSnowCm, 'newSnow');
-  return d;
-}
+const readPrevious = (id: string) => readFile(join(OUT, `${id}.json`), 'utf-8').then((t) => JSON.parse(t) as StationFile).catch(() => null);
 
-function toFile(st: StationDef, d: Daily): StationFile {
-  const dates = [...d.keys()].sort();
-  const withDepth = dates.filter((x) => d.get(x)!.depth != null);
-  const withSwe = dates.filter((x) => d.get(x)!.swe != null);
-  const start = [withDepth[0], withSwe[0]].filter(Boolean).sort()[0] ?? dates[0];
-  const end = dates[dates.length - 1];
-  const n = Math.round((Date.parse(end) - Date.parse(start)) / 86_400_000) + 1;
-  const depthCm: (number | null)[] = new Array(n).fill(null);
-  const sweMm: (number | null)[] = new Array(n).fill(null);
-  const newSnowCm: (number | null)[] = new Array(n).fill(null);
-  for (const [date, v] of d) {
-    const i = Math.round((Date.parse(date) - Date.parse(start)) / 86_400_000);
-    if (i < 0 || i >= n) continue;
-    if (v.depth != null) depthCm[i] = Math.round(v.depth * 10) / 10;
-    if (v.swe != null) sweMm[i] = Math.round(v.swe * 10) / 10;
-    if (v.newSnow != null) newSnowCm[i] = Math.round(v.newSnow * 10) / 10;
+const summary = (st: StationDef, file: StationFile, mode: string, unchanged: boolean, t0: number) => {
+  const nDepth = file.depthCm.filter((v) => v != null).length;
+  return `${unchanged ? '=' : '✓'} ${mode} ${st.id.padEnd(14)} ${file.start} → ${file.lastDepthDate}  depth days ${nDepth}${file.sweMm ? `, swe through ${file.lastSweDate}` : ''}${unchanged ? '  (unchanged)' : ''}  (${((Date.now() - t0) / 1000).toFixed(1)} s)`;
+};
+
+// ---------------------------------------------------------------- SNODAS (modelled; NSIDC G02158)
+/**
+ * Days back the update looks for SNODAS days the files don't have. NSIDC posts each day's file once, at
+ * about 14 UTC, so a day already in the files is never fetched again, and the day not posted yet is one
+ * cheap 404 per run.
+ */
+const SNODAS_LOOKBACK_DAYS = Number(process.env.SNODAS_LOOKBACK_DAYS ?? 10);
+
+async function snodasUpdate(points: StationDef[]): Promise<number> {
+  const t0 = Date.now();
+  if (FULL) console.log('· SNODAS: incremental only; history comes from the backfill workflow');
+  const previous = await Promise.all(points.map((p) => readPrevious(p.id)));
+  const daily = previous.map((f) => (f ? fromFile(f) : (new Map() as Daily)));
+  const today = new Date().toISOString().slice(0, 10);
+  // One file serves every point, so a day is done once any point has it (a point without a file yet needs them all).
+  const dates = Array.from({ length: SNODAS_LOOKBACK_DAYS }, (_, i) => addDays(today, i + 1 - SNODAS_LOOKBACK_DAYS))
+    .filter((d) => previous.some((f) => !f) || !daily.some((m) => m.get(d)?.depth != null));
+  let failures = 0;
+  for (const date of dates) {
+    try {
+      const day = await fetchSnodasDay(date, points, { ua: UA });
+      if (!day) {
+        console.log(`· SNODAS ${date}: no file at NSIDC (not posted yet, or a missing day)`);
+        continue;
+      }
+      points.forEach((p, i) => {
+        const v = day.values.get(p.id)!;
+        setVal(daily[i], date, 'depth', v.depthCm);
+        setVal(daily[i], date, 'swe', v.sweMm);
+      });
+      console.log(`· SNODAS ${date}: read ${points.length} cells`);
+    } catch (err) {
+      failures++;
+      console.error(`✗ SNODAS ${date}: ${(err as Error).message}`);
+    }
   }
-  return {
-    id: st.id,
-    updated: new Date().toISOString(),
-    start,
-    depthCm,
-    sweMm: withSwe.length ? sweMm : null,
-    newSnowCm: newSnowCm.some((x) => x != null) ? newSnowCm : null,
-    lastDepthDate: withDepth[withDepth.length - 1] ?? null,
-    lastSweDate: withSwe[withSwe.length - 1] ?? null,
-  };
+  for (const [i, st] of points.entries()) {
+    if (!daily[i].size) {
+      failures++;
+      console.error(`✗ ${st.id}: no SNODAS values — keeping previous file if any`);
+      continue;
+    }
+    const file = toFile(st, daily[i]);
+    const unchanged = sameData(previous[i], file);
+    if (!unchanged) await writeFile(join(OUT, `${st.id}.json`), JSON.stringify(file));
+    console.log(summary(st, file, 'snodas', unchanged, t0));
+  }
+  return failures;
 }
 
 async function main() {
   const only = process.argv.slice(2);
   const targets = STATIONS.filter((s) => !only.length || only.includes(s.id));
+  const snodasTargets = SNODAS_POINTS.filter((s) => !only.length || only.includes('snodas') || only.includes(s.id));
   await mkdir(OUT, { recursive: true });
   let failures = 0;
   for (const st of targets) {
     const t0 = Date.now();
     try {
       const path = join(OUT, `${st.id}.json`);
-      const previous = await readFile(path, 'utf-8').then((t) => JSON.parse(t) as StationFile).catch(() => null);
+      const previous = await readPrevious(st.id);
       const since = FULL || !previous ? null : new Date(Date.now() - RECENT_DAYS * 86_400_000).toISOString().slice(0, 10);
-      const fetched = await FETCHERS[st.source](st, since);
+      const fetcher = FETCHERS[st.source];
+      if (!fetcher) throw new Error(`no fetcher for ${st.source}`);
+      const fetched = await fetcher(st, since);
       if (!fetched.size && !previous) throw new Error('no data returned');
       // Incremental: overlay the recent window onto the existing record.
       const daily = since && previous ? fromFile(previous) : new Map() as Daily;
       for (const [date, v] of fetched) daily.set(date, { ...daily.get(date), ...v });
       const file = toFile(st, daily);
       // Skip the write (and so the commit) when only the fetch timestamp would change.
-      const sameData = previous != null && JSON.stringify({ ...previous, updated: '' }) === JSON.stringify({ ...file, updated: '' });
-      if (!sameData) await writeFile(path, JSON.stringify(file));
-      const nDepth = file.depthCm.filter((v) => v != null).length;
-      console.log(`${sameData ? '=' : '✓'} ${since ? 'recent' : 'full  '} ${st.id.padEnd(14)} ${file.start} → ${file.lastDepthDate}  depth days ${nDepth}${file.sweMm ? `, swe through ${file.lastSweDate}` : ''}${sameData ? '  (unchanged)' : ''}  (${((Date.now() - t0) / 1000).toFixed(1)} s)`);
+      const unchanged = sameData(previous, file);
+      if (!unchanged) await writeFile(path, JSON.stringify(file));
+      console.log(summary(st, file, since ? 'recent' : 'full  ', unchanged, t0));
     } catch (err) {
       failures++;
       console.error(`✗ ${st.id}: ${(err as Error).message} — keeping previous file if any`);
     }
   }
+  if (snodasTargets.length) failures += await snodasUpdate(snodasTargets);
   process.exitCode = failures ? 1 : 0;
 }
 
