@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
-  MANIFEST_RETRY_MS, NOT_IN_SNAPSHOT, NoFreshCopyError, NotInSnapshotError, SNAPSHOT_INTERVAL_H, SNAPSHOT_MAX_AGE_S, cachedJson, clearCache,
+  MANIFEST_RETRY_MS, NOT_IN_SNAPSHOT, NoFreshCopyError, NotInSnapshotError, SNAPSHOT_INTERVAL_H, SNAPSHOT_MAX_AGE_S, SNAPSHOT_OVERDUE_S,
+  cachedJson, clearCache, snapshotAge,
   isSnapshotOnly, manifestGeneratedAt, parseManifest, snapshotInfo, snapshotIsFresh, snapshotUse, type SnapshotEntry,
 } from './cache';
 
@@ -52,6 +53,21 @@ afterEach(() => {
   vi.useRealTimers();
   vi.unstubAllGlobals();
   vi.unstubAllEnvs();
+});
+
+describe('snapshotAge', () => {
+  it('is fresh, then stale past the max age, then overdue past two refresh intervals', () => {
+    expect(SNAPSHOT_OVERDUE_S).toBe(2 * SNAPSHOT_INTERVAL_H * 3600);
+    expect(snapshotAge(NOW_S - 2 * 3600, NOW_S)).toEqual({ ageS: 2 * 3600, stale: false, overdue: false });
+    expect(snapshotAge(NOW_S - SNAPSHOT_MAX_AGE_S, NOW_S)).toMatchObject({ stale: true, overdue: false });
+    expect(snapshotAge(NOW_S - SNAPSHOT_OVERDUE_S - 60, NOW_S)).toMatchObject({ stale: true, overdue: true });
+  });
+
+  it('has no age without a timestamp, and none below zero', () => {
+    expect(snapshotAge(null, NOW_S)).toBeNull();
+    expect(snapshotAge(Number.NaN, NOW_S)).toBeNull();
+    expect(snapshotAge(NOW_S + 600, NOW_S)?.ageS).toBe(0);
+  });
 });
 
 describe('snapshotIsFresh', () => {

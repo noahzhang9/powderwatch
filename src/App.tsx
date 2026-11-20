@@ -2,7 +2,7 @@ import { useEffect } from 'react';
 import { RESORTS, resortById } from './config/resorts';
 import { href, useRoute } from './hooks/useRoute';
 import { usePrefs } from './lib/prefs';
-import { Seg, SnapshotOnlyBanner } from './components/ui';
+import { Seg, SnapshotFreshness, SnapshotOnlyBanner, UpdateOverdueBanner } from './components/ui';
 import { isSnapshotOnly } from './lib/cache';
 import { Dashboard } from './views/Dashboard';
 import { ResortView, TABS } from './views/ResortView';
@@ -34,7 +34,7 @@ export function App() {
       <a href="#main" className="skip-link" onClick={(e) => { e.preventDefault(); document.getElementById('main')?.focus(); }}>
         Skip to content
       </a>
-      {isSnapshotOnly() && <SnapshotOnlyBanner />}
+      {isSnapshotOnly() ? <SnapshotOnlyBanner /> : <UpdateOverdueBanner />}
       <header className="border-b border-line bg-surface">
         <div className="max-w-7xl mx-auto px-4 py-3 flex flex-wrap items-center gap-x-6 gap-y-2">
           <a href={href()} className="font-semibold text-lg tracking-tight flex items-center gap-2">
@@ -73,6 +73,7 @@ export function App() {
         </ErrorBoundary>
       </main>
       <footer className="max-w-7xl mx-auto px-4 pb-8 text-[11px] text-ink-3 leading-relaxed [&_a]:underline">
+        {!isSnapshotOnly() && <p className="mb-1"><SnapshotFreshness /></p>}
         <p>
           Forecasts: <a href="https://open-meteo.com/">Open-Meteo</a> (<a href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0</a>), from ECMWF, NOAA, ECCC, DWD, UK Met Office and MeteoSwiss models.
           Official guidance (US resorts): NOAA National Blend of Models, via Open-Meteo; winter precipitation outlook from the{' '}

@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { useAsync } from '../hooks/useAsync';
-import { NOT_IN_SNAPSHOT, SNAPSHOT_MAX_AGE_S, isNotInSnapshot, netStatus, snapshotInfo, subscribeNet } from '../lib/cache';
+import { NOT_IN_SNAPSHOT, isNotInSnapshot, netStatus, snapshotAge, snapshotInfo, subscribeNet } from '../lib/cache';
 import { ago, nowUnix } from '../lib/time';
 
 export function Seg<T extends string>({ value, options, onChange, label }: {
@@ -81,9 +81,15 @@ export function RequestError({ what, error, retry }: { what: string; error: Erro
   );
 }
 
+/** The deployed (or, in snapshot-only builds, local) snapshot's manifest summary and age, read once per page. */
+function useSnapshotAge() {
+  const info = useAsync(snapshotInfo, []);
+  return { info, age: snapshotAge(info.data?.generatedAt, nowUnix()) };
+}
+
 /** Snapshot-only builds: says so, and how old the snapshot is. */
 export function SnapshotOnlyBanner() {
-  const info = useAsync(snapshotInfo, []);
+  const { info, age } = useSnapshotAge();
   const t = info.data?.generatedAt ?? null;
   const taken = t == null ? null : new Date(t * 1000).toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
   return (
@@ -94,10 +100,38 @@ export function SnapshotOnlyBanner() {
           <>
             {' '}· forecasts from the local snapshot taken {t == null ? 'at an unknown time' : <>{ago(t)}<span className="hidden sm:inline"> ({taken})</span></>}
             <span className="hidden sm:inline">, {info.data.entries} requests</span>
-            {t != null && nowUnix() - t > SNAPSHOT_MAX_AGE_S ? ', older than the live site would use' : ''}
+            {age?.stale ? ', older than the live site would use' : ''}
           </>
         ) : ' · no local snapshot found (.cache/fc/ is empty)'}
         {' '}· no live Open-Meteo calls.
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Normal builds: one quiet footer line saying when the scheduled job last refreshed the forecasts.
+ * Snapshot-only builds say this in their banner instead.
+ */
+export function SnapshotFreshness() {
+  const { info, age } = useSnapshotAge();
+  if (info.loading) return null;
+  if (!info.data) return <>Forecasts load live from Open-Meteo (no snapshot deployed).</>;
+  if (!age) return null;
+  return age.stale
+    ? <>Last scheduled forecast update {ago(info.data.generatedAt!)}; newer forecasts load live from Open-Meteo.</>
+    : <>Forecasts updated {ago(info.data.generatedAt!)}.</>;
+}
+
+/** Normal builds, only when the scheduled update is overdue: a one-line warning above the header. */
+export function UpdateOverdueBanner() {
+  const { info, age } = useSnapshotAge();
+  if (!age?.overdue) return null;
+  return (
+    <div className="bg-surface-2 border-b border-line text-xs text-ink-1" role="status" style={{ borderLeft: '3px solid var(--warning)' }}>
+      <div className="max-w-7xl mx-auto px-4 py-1.5">
+        <span aria-hidden className="mr-1.5">⚠️</span>
+        <b>Scheduled update overdue</b> — showing live data where needed (last update {ago(info.data!.generatedAt!)}).
       </div>
     </div>
   );

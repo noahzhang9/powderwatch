@@ -157,6 +157,23 @@ export const LOCAL_SNAPSHOT_DIR = '.cache/fc/';
 export const SNAPSHOT_INTERVAL_H = 4;
 /** Snapshot copies younger than this are used instead of calling Open-Meteo: one interval plus 30 minutes for a late run. */
 export const SNAPSHOT_MAX_AGE_S = (SNAPSHOT_INTERVAL_H + 0.5) * 3600;
+/** A deployed snapshot older than two refresh intervals means scheduled updates have stopped or been dropped. */
+export const SNAPSHOT_OVERDUE_S = 2 * SNAPSHOT_INTERVAL_H * 3600;
+
+export interface SnapshotAge {
+  ageS: number;
+  /** Older than SNAPSHOT_MAX_AGE_S: the browser fetches forecasts live instead (normal builds). */
+  stale: boolean;
+  /** Older than SNAPSHOT_OVERDUE_S: the scheduled update is overdue. */
+  overdue: boolean;
+}
+
+/** How old a snapshot taken at `generatedAt` is (null: no snapshot, or no timestamp). */
+export function snapshotAge(generatedAt: number | null | undefined, nowS: number): SnapshotAge | null {
+  if (generatedAt == null || !Number.isFinite(generatedAt)) return null;
+  const ageS = Math.max(0, nowS - generatedAt);
+  return { ageS, stale: ageS >= SNAPSHOT_MAX_AGE_S, overdue: ageS > SNAPSHOT_OVERDUE_S };
+}
 /** `<url hash>-<content hash>.json`: content-addressed, so a cached copy is never out of date. */
 export const SNAPSHOT_FILE_RE = /^[0-9a-f]{16}-[0-9a-f]{10}\.json$/;
 /** The WPC chances file the job writes next to the snapshot (src/lib/wpc.ts), content-addressed too. */
