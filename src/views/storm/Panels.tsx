@@ -16,7 +16,7 @@ import { isNum } from '../../lib/stats';
 import { ago, localHourLabel, nowUnix, runLabel } from '../../lib/time';
 import { WPC_ATTRIBUTION, WPC_CATEGORY_LABEL, WPC_PAGE, WPC_THRESHOLDS_IN, type WpcCategory, type WpcFile, type WpcPeriod } from '../../lib/wpc';
 import { midBand } from '../../lib/requests';
-import { sinceLastVisit } from '../../lib/visits';
+import { useSinceLastVisit } from '../../lib/visits';
 
 function modelWindow(m: DerivedHourly, from: number, hours: number, key: 'snowCm' | 'omSnowCm' = 'snowCm') {
   const to = from + hours * 3600;
@@ -52,6 +52,11 @@ export function Totals({ data, now, ens, fmt, rawSnow, resort, band }: {
   data: BandForecast; now: number; ens?: EnsembleSet; fmt: Fmt; rawSnow: boolean; resort: Resort; band: Band;
 }) {
   const key = rawSnow ? 'omSnowCm' : 'snowCm';
+  // "Since your last visit" compares the physics totals the dashboard also shows, never Open-Meteo's raw 7:1 snowfall.
+  const visitKey = (hours: number) => `${resort.id}:${band.key}:${hours}`;
+  const deltas = useSinceLastVisit(
+    rawSnow ? {} : Object.fromEntries([72, 168].map((h) => [visitKey(h), windowSum(data.blend.time, data.blend.snowCm, now, now + h * 3600)])),
+  );
   const wet = data.blend.time
     .map((t, i) => (t > now && t <= now + 72 * 3600 && (data.blend.precip[i] ?? 0) >= 0.3 ? data.blend.snowLevel[i] : null))
     .filter(isNum);
@@ -68,7 +73,7 @@ export function Totals({ data, now, ens, fmt, rawSnow, resort, band }: {
         const [p10, p50, p90] = ws ? windowQuantiles(ws, [0.1, 0.5, 0.9]) : [null, null, null];
         const useEns = w.ensemble && p50 != null;
         const outside = blendTotal != null && lo != null && hi != null && (blendTotal < lo - 0.5 || blendTotal > hi + 0.5);
-        const delta = w.hours === 72 || w.hours === 168 ? sinceLastVisit(`${resort.id}:${band.key}:${w.hours}`, blendTotal) : null;
+        const delta = deltas[visitKey(w.hours)] ?? null;
         return (
           <Tile
             key={w.label}

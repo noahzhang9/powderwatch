@@ -14,7 +14,7 @@ import { useFmt, type Fmt } from '../lib/prefs';
 import { isNum } from '../lib/stats';
 import { snowClass } from '../lib/palette';
 import { dailyCentres, dailyPhase } from '../lib/forecast';
-import { sinceLastVisit } from '../lib/visits';
+import { useSinceLastVisit } from '../lib/visits';
 import { useNarrow } from '../hooks/useNarrow';
 import { midBand } from '../lib/requests';
 import { Delta } from './storm/Panels';
@@ -109,6 +109,8 @@ function ResortCard({ resort }: { resort: Resort }) {
     return vals.length ? [Math.min(...vals), Math.max(...vals)] : null;
   }, [data, now]);
 
+  const visitKey = (hours: number) => `${resort.id}:mid:${hours}`;
+  const deltas = useSinceLastVisit(data ? Object.fromEntries([72, 168].map((h) => [visitKey(h), windowStats(data, now, h).total])) : {});
   const w7 = data ? windowStats(data, now, 168) : null;
   const o = obs.data;
   const thin = o?.clim && o.clim.seasons.length < 10;
@@ -159,7 +161,7 @@ function ResortCard({ resort }: { resort: Resort }) {
             <div className="grid grid-cols-3 gap-2 mt-1">
               {[72, 168, 240].map((h) => {
                 const s = windowStats(data, now, h);
-                const d = h <= 168 ? sinceLastVisit(`${resort.id}:mid:${h}`, s.total) : null;
+                const d = deltas[visitKey(h)] ?? null;
                 return (
                   <div key={h}>
                     <div className="text-xl font-semibold">{fmt.snow(s.total)}</div>
