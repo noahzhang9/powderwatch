@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { RESORTS, resortById, type Resort } from '../config/resorts';
 import { stationsFor } from '../config/stations';
 import { RequestError } from '../components/ui';
@@ -7,13 +7,11 @@ import { useAsync } from '../hooks/useAsync';
 import { href } from '../hooks/useRoute';
 import { NOT_IN_SNAPSHOT, isNotInSnapshot } from '../lib/cache';
 import { buildClimatology, percentileRank, seasonIndex } from '../lib/climatology';
-import { lastValidTime, windowSum } from '../lib/forecast';
+import { dailyCentres, dailyPhase, lastValidTime, windowSum, type DailyRow } from '../lib/forecast';
 import { latest, loadStation } from '../lib/obs';
-import { measuresNewSnow, recentReports, sumOrNull } from '../lib/recent';
 import { useFmt, type Fmt } from '../lib/prefs';
 import { isNum } from '../lib/stats';
 import { snowClass } from '../lib/palette';
-import { dailyCentres, dailyPhase } from '../lib/forecast';
 import { useSinceLastVisit } from '../lib/visits';
 import { storageGet, storageSet } from '../lib/storage';
 import { useNarrow } from '../hooks/useNarrow';
@@ -52,17 +50,10 @@ function usePrimaryStation(resort: Resort) {
     const last = latest(file, 'depthCm');
     const clim = buildClimatology(file, 'depthCm', today);
     const k = last ? seasonIndex(last.date)?.k ?? null : null;
-    const recent = recentReports(stations[idx], file, today, 7);
-    const newSnow = measuresNewSnow(stations[idx], file);
     return {
       station: stations[idx],
       file,
       last,
-      week: {
-        newSnow,
-        snowCm: sumOrNull(recent.map((d) => (newSnow ? d.newSnowCm : d.depthChangeCm))),
-        sweMm: sumOrNull(recent.map((d) => d.sweChangeMm)),
-      },
       clim,
       median: clim && k != null ? clim.p50[k] : null,
       pct: clim && k != null && last ? percentileRank(clim, k, last.value) : null,
@@ -87,28 +78,30 @@ function agreement(total: number | null, min: number | null, max: number | null)
   return r < 0.6 ? 'models broadly agree' : r < 1.2 ? 'models disagree somewhat' : 'models disagree strongly';
 }
 
+/** The Where & when grid's days for a resort: today and the days after it, `nDays` in all. */
+const gridDays = (data: BandForecast, today: string, nDays: number) => data.blendDaily.filter((d) => d.date >= today).slice(0, nDays);
+
+/** The grid's ★ needs at least this much snow, cm. */
+export const BEST_DAY_MIN_CM = 2.5;
+
+/** Index of the ★ best day among the grid's days (the snowiest, if it reaches BEST_DAY_MIN_CM), shared by the grid and the cards. */
+function bestDayIndex(days: DailyRow[]): number | null {
+  const i = days.reduce((bi, d, k) => ((d.snowCm ?? 0) > (days[bi]?.snowCm ?? 0) ? k : bi), 0);
+  return (days[i]?.snowCm ?? 0) >= BEST_DAY_MIN_CM ? i : null;
+}
+
 function ResortCard({ resort }: { resort: Resort }) {
   const fmt = useFmt();
-  const summit = resort.bands.find((b) => b.key === 'summit')!;
+  const narrow = useNarrow();
   const fc = useBandForecast(resort, midBand(resort));
   const obs = usePrimaryStation(resort);
   const now = nowUnix();
   const data = fc.data;
   const today = todayIn(resort.tz);
-
-  const nextStorm = useMemo(() => {
-    if (!data) return null;
-    const th = fmt.units === 'imperial' ? 4 * 2.54 : 10;
-    return data.blendDaily.find((d) => d.date >= today && (d.snowCm ?? 0) >= th) ?? null;
-  }, [data, today, fmt.units]);
-
-  const sl = useMemo(() => {
-    if (!data) return null;
-    const vals = data.blend.time
-      .map((t, i) => (t > now && t <= now + 72 * 3600 && (data.blend.precip[i] ?? 0) >= 0.3 ? data.blend.snowLevel[i] : null))
-      .filter(isNum);
-    return vals.length ? [Math.min(...vals), Math.max(...vals)] : null;
-  }, [data, now]);
+  const nDays = narrow ? NARROW_GRID_DAYS : GRID_DAYS;
+  const days = data ? gridDays(data, today, nDays) : [];
+  const bi = bestDayIndex(days);
+  const best = bi == null ? null : days[bi];
 
   const visitKey = (hours: number) => `${resort.id}:mid:${hours}`;
   const deltas = useSinceLastVisit(data ? Object.fromEntries([72, 168].map((h) => [visitKey(h), windowStats(data, now, h).total])) : {});
@@ -137,14 +130,6 @@ function ResortCard({ resort }: { resort: Resort }) {
             <div className="text-xs text-ink-2">
               {o.station.name}, {fmt.elev(o.station.elevation)}{Math.abs(gap) > 300 && <> · {fmt.elev(Math.abs(gap))} {gap > 0 ? 'below' : 'above'} mid-mountain</>} · {shortDate(o.last.date)}
             </div>
-            {o.week.snowCm != null && (
-              <div className="text-xs text-ink-2 mt-1">
-                Last 7 days:{' '}
-                {o.week.newSnow
-                  ? <><b>{fmt.snow(o.week.snowCm)}</b> new snow measured</>
-                  : <>depth {o.week.snowCm >= 0 ? '+' : '−'}{fmt.snow(Math.abs(o.week.snowCm))}{o.week.sweMm != null && <>, water {o.week.sweMm >= 0 ? '+' : '−'}{fmt.water(Math.abs(o.week.sweMm))}</>}</>}
-              </div>
-            )}
           </>
         ) : (
           <div className="text-sm text-ink-3" aria-live="polite">{obs.loading ? 'Loading…' : 'No recent station data'}</div>
@@ -159,8 +144,8 @@ function ResortCard({ resort }: { resort: Resort }) {
           <div className="text-sm text-ink-3 py-3">Loading models…</div>
         ) : (
           <>
-            <div className="grid grid-cols-3 gap-2 mt-1">
-              {[72, 168, 240].map((h) => {
+            <div className="grid grid-cols-2 gap-3 mt-1">
+              {[72, 168].map((h) => {
                 const s = windowStats(data, now, h);
                 const d = deltas[visitKey(h)] ?? null;
                 return (
@@ -173,14 +158,13 @@ function ResortCard({ resort }: { resort: Resort }) {
                 );
               })}
             </div>
-            <WeekBars data={data} tz={resort.tz} fmt={fmt} />
             <div className="text-xs text-ink-2 mt-2">
               {w7 && `7-day: ${agreement(w7.total, w7.min, w7.max)}`}
-              {nextStorm ? ` · next big day: ${nextStorm.date === today ? 'today' : dayLabel(nextStorm.date)} (${fmt.snow(nextStorm.snowCm)})` : ''}
             </div>
             <div className="text-xs text-ink-2 mt-1">
-              {sl ? <>Snow level next 72 h: {fmt.elevRange(sl[0], sl[1])}</> : 'Snow level: dry next 72 h'}
-              {sl && sl[1] > summit.elevation - 100 && <span> · <b>⚠ rain risk up high</b></span>}
+              {best
+                ? <>★ Best day: <b className="text-ink">{best.date === today ? 'today' : dayLabel(best.date)}</b>, {fmt.snow(best.snowCm)}</>
+                : `No day with ${fmt.snow(BEST_DAY_MIN_CM, 1)} or more in the next ${nDays} days`}
             </div>
             <a href={href('resort', resort.id)} className="text-xs underline text-ink-2 mt-2 inline-block">Storm tracker →</a>
           </>
@@ -190,47 +174,9 @@ function ResortCard({ resort }: { resort: Resort }) {
   );
 }
 
-/** Fixed scale shared by every card so bar heights compare across resorts. */
-const WEEK_SCALE_CM = 30;
-
-/** Compact 7-day blend: bar height and shade by snow amount, value underneath, rain flagged. */
-function WeekBars({ data, tz, fmt }: { data: BandForecast; tz: string; fmt: Fmt }) {
-  const today = todayIn(tz);
-  const days = data.blendDaily.filter((d) => d.date >= today).slice(0, 7);
-  const centres = dailyCentres(data.models, tz);
-  return (
-    <div className="grid grid-cols-7 gap-1 mt-3" role="list" aria-label="Next 7 days, blended snowfall">
-      {days.map((d) => {
-        const snow = d.snowCm ?? 0;
-        const rain = d.rainMm ?? 0;
-        const step = snowClass(snow) + 1;
-        const low = (centres.get(d.date) ?? 0) < LOW_CENTRES;
-        return (
-          <div key={d.date} role="listitem" className="flex flex-col items-center" title={`${d.date}: ${fmt.snow(snow)} snow${rain >= 1 ? `, ${fmt.water(rain)} rain` : ''}${low ? ' (fewer than 3 forecast centres)' : ''}`}>
-            <div className="h-12 w-full flex items-end justify-center">
-              <div
-                style={{
-                  height: `${Math.min(100, Math.max(snow >= 0.5 ? 6 : 0, (snow / WEEK_SCALE_CM) * 100))}%`,
-                  background: low ? 'transparent' : `var(--snow-${step})`,
-                  border: low ? `1.5px solid var(--snow-${step})` : undefined,
-                }}
-                className="w-3/5 rounded-t"
-              />
-            </div>
-            <div className={`text-[11px] tnum mt-0.5 ${snow >= 0.5 ? 'font-semibold text-ink' : 'text-ink-3'}`}>{snow >= 0.5 ? fmt.snow(snow).replace(/ (cm|in)$/, '') : '–'}</div>
-            <div className="text-[11px] text-ink-3">{d.date === today ? 'Today' : weekday(d.date)}</div>
-            {rain >= 1 && (
-              <div className="text-[10px] text-ink-2 flex items-center gap-0.5">
-                <span aria-hidden style={{ width: 6, height: 6, borderRadius: 3, background: 'var(--rain)' }} />
-                {fmt.water(rain).replace(/ (mm|in)$/, '')}
-              </div>
-            )}
-          </div>
-        );
-      })}
-    </div>
-  );
-}
+/** Days the Where & when grid shows, on desktop and on phones. */
+export const GRID_DAYS = 10;
+export const NARROW_GRID_DAYS = 6;
 
 /**
  * Where & when: every resort × the next 10 days on one shared scale, so the
@@ -239,7 +185,7 @@ function WeekBars({ data, tz, fmt }: { data: BandForecast; tz: string; fmt: Fmt 
 function WhereWhen() {
   const fmt = useFmt();
   const narrow = useNarrow();
-  const nDays = narrow ? 6 : 10;
+  const nDays = narrow ? NARROW_GRID_DAYS : GRID_DAYS;
   return (
     <section className="card p-4 mt-4" aria-labelledby="ww-title">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
@@ -262,10 +208,10 @@ function WhereWhenRow({ resort, nDays, fmt, narrow }: { resort: Resort; nDays: n
   const fc = useBandForecast(resort, midBand(resort));
   const today = todayIn(resort.tz);
   const data = fc.data;
-  const days = data ? data.blendDaily.filter((d) => d.date >= today).slice(0, nDays) : [];
+  const days = data ? gridDays(data, today, nDays) : [];
   const centres = data ? dailyCentres(data.models, resort.tz) : new Map<string, number>();
   const phases = data ? dailyPhase(data.blend, resort.tz, [summit.elevation]) : new Map();
-  const best = days.reduce((bi, d, i) => ((d.snowCm ?? 0) > (days[bi]?.snowCm ?? 0) ? i : bi), 0);
+  const best = bestDayIndex(days);
   return (
     <tr>
       <th scope="row" className="text-left font-semibold pr-2 whitespace-nowrap">
@@ -295,7 +241,7 @@ function WhereWhenRow({ resort, nDays, fmt, narrow }: { resort: Resort; nDays: n
               <div className="text-[10px] opacity-80">{i === 0 ? 'Today' : narrow ? weekday(d.date).slice(0, 2) : dayLabel(d.date)}</div>
               <div className="font-semibold">
                 {snow >= 0.5 ? fmt.snow(snow).replace(/ (cm|in)$/, '') : '–'}
-                {i === best && snow >= 2.5 && <span aria-label="best day"> ★</span>}
+                {i === best && <span aria-label="best day"> ★</span>}
                 {(ph === 'rain' || ph === 'mixed') && <span className="text-[10px]" aria-label={ph}> {ph === 'rain' ? 'R' : 'M'}</span>}
               </div>
             </td>

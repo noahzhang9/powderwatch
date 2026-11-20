@@ -236,7 +236,6 @@ The same period's GFS runs read 74 → 20 → 14 → 0 → 25 cm. A storm vanish
 - **Rain/snow split at each band:**
   - Based on wet-bulb temperature (Stull 2011), from downscaled 2 m temperature and humidity.
   - All snow at or below 0 °C, all rain at or above 2 °C, linear in between.
-- **Dashboard flag:** "rain risk up high" when the 72-hour snow level comes within 100 m of the summit band.
 
 ### Feature 6 — Resort and Trip Dashboard *(implemented, except operating status)*
 
@@ -245,11 +244,11 @@ The same period's GFS runs read 74 → 20 → 14 → 0 → 25 cm. A storm vanish
 **Resort cards:**
 
 - station depth, % of median and percentile, labelled as a station, never as "base";
-- blended snowfall at 3, 7, 10 and 14 days, each with the model range;
-- a 7-day mini forecast on a shared scale (bars shaded by amount, rain flagged), the last 7 days measured at the station, and changes since your last visit;
+- blended snowfall at 3 and 7 days, each with the model range and the change since your last visit;
 - a model-agreement label;
-- the next day with at least 10 cm (4 in);
-- the 72-hour snow-level range.
+- the best day, the one the Where & when grid stars.
+
+The day-by-day numbers live in the grid alone; the Storm tracker has the snow level and the last 7 days measured.
 
 **Trips** (saved in browser localStorage only):
 
