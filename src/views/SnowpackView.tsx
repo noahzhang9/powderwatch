@@ -15,6 +15,7 @@ import { useFmt, type Fmt } from '../lib/prefs';
 import { runSnowpack, type ForcingHour } from '../lib/snowpack';
 import { familyWeights, isNum, weightedQuantile, type Series } from '../lib/stats';
 import { addDays, ago, daysBetween, localMidnightUnix, shortDate, todayIn } from '../lib/time';
+import { useNarrow } from '../hooks/useNarrow';
 import { useHashParam } from '../hooks/useRoute';
 import { defaultStationIndex, pointOf, projectionStart, SNOWPACK_WITH_FREEZING_LEVEL } from '../lib/requests';
 
@@ -41,6 +42,7 @@ interface Projection {
 
 export function SnowpackView({ resort }: { resort: Resort }) {
   const fmt = useFmt();
+  const narrow = useNarrow();
   const stations = stationsFor(resort.id);
   const [picked, setStationId] = useState<string | null>(null);
   // Default to the first station (preference order) that reported in the last 3 days.
@@ -158,7 +160,7 @@ export function SnowpackView({ resort }: { resort: Resort }) {
               </>
             }
           >
-            <SeasonChart clim={clim} season={season} kToday={kToday} projection={projection} showPrev={showPrev} showScenarios={showScenarios} fmt={fmt} v={v} zoom={range === 'sofar'} />
+            <SeasonChart clim={clim} season={season} kToday={kToday} projection={projection} showPrev={showPrev} showScenarios={showScenarios} fmt={fmt} v={v} zoom={range === 'sofar'} narrow={narrow} />
           </Section>
         </>
       )}
@@ -218,8 +220,10 @@ function Stats({ clim, last, today, projection, fmt, v, stale, ensError }: {
   );
 }
 
-function SeasonChart({ clim, season, kToday, projection, showPrev, showScenarios, fmt, v, zoom }: {
+function SeasonChart({ clim, season, kToday, projection, showPrev, showScenarios, fmt, v, zoom, narrow }: {
   clim: Climatology; season: number; kToday: number | null; projection: Projection | null; showPrev: boolean; showScenarios: boolean; fmt: Fmt; v: Variable; zoom: boolean;
+  /** Phones: the low-confidence shading loses its text and the projection's end label shortens to its value, so labels don't overprint. */
+  narrow: boolean;
 }) {
   const conv = useCallback((x: number | null | undefined) => (v === 'depthCm' ? fmt.snowVal(x) : fmt.waterVal(x)), [fmt, v]);
   const unit = v === 'depthCm' ? fmt.snowUnit : fmt.waterUnit;
@@ -270,7 +274,11 @@ function SeasonChart({ clim, season, kToday, projection, showPrev, showScenarios
           axisTick: { show: true, customValues: ticks, lineStyle: { color: p.axis } },
           splitLine: { show: false },
         },
-        yAxis: { ...(base.yAxis as object), type: 'value', min: 0, max: yMax == null ? undefined : Math.ceil(yMax / 5) * 5, name: unit, nameTextStyle: { color: p.ink3 } },
+        yAxis: {
+          ...(base.yAxis as object), type: 'value', min: 0, max: yMax == null ? undefined : Math.ceil(yMax / 5) * 5, name: unit, nameTextStyle: { color: p.ink3 },
+          // A fitted maximum is rarely on a tick: its own label would crowd the tick below it.
+          axisLabel: { color: p.ink3, fontSize: 11, showMaxLabel: yMax == null },
+        },
         tooltip: {
           ...(base.tooltip as object),
           formatter: (params: { axisValue: number }[]) => {
@@ -308,13 +316,19 @@ function SeasonChart({ clim, season, kToday, projection, showPrev, showScenarios
                 { type: 'line', name: 'Projection 10–90%', stack: 'proj', symbol: 'none', lineStyle: { opacity: 0 }, areaStyle: { color: p.proj.outer }, data: projDiff, silent: true },
                 {
                   type: 'line', name: 'Projection', symbol: 'none', lineStyle: { width: 2.5, color: p.proj.line }, data: projPts(proj.p50), z: 6, silent: true,
-                  endLabel: { show: true, color: p.ink1, fontSize: 11, fontWeight: 600, formatter: (x: { value: [number, number | null] }) => {
-                    const last = proj.ks.length - 1;
-                    if (x.value[1] == null || last < 0) return '';
-                    const lo = conv(proj.p10[last]);
-                    const hi = conv(proj.p90[last]);
-                    return `≈${Math.round(x.value[1])} ${unit} by ${shortDate(seasonDate(season, proj.ks[last]))}${lo != null && hi != null ? ` (${Math.round(lo)}–${Math.round(hi)})` : ''}`;
-                  } },
+                  endLabel: {
+                    show: true, color: p.ink1, fontSize: 11, fontWeight: 600,
+                    // On a backing so it stays legible where it crosses other lines; phones show just the value.
+                    backgroundColor: alpha(p.surface, 0.85), padding: [1, 3], borderRadius: 2,
+                    formatter: (x: { value: [number, number | null] }) => {
+                      const last = proj.ks.length - 1;
+                      if (x.value[1] == null || last < 0) return '';
+                      if (narrow) return `≈${Math.round(x.value[1])} ${unit}`;
+                      const lo = conv(proj.p10[last]);
+                      const hi = conv(proj.p90[last]);
+                      return `≈${Math.round(x.value[1])} ${unit} by ${shortDate(seasonDate(season, proj.ks[last]))}${lo != null && hi != null ? ` (${Math.round(lo)}–${Math.round(hi)})` : ''}`;
+                    },
+                  },
                 },
                 ...(showScenarios
                   ? proj.scenarios.map((s) => ({
@@ -340,14 +354,15 @@ function SeasonChart({ clim, season, kToday, projection, showPrev, showScenarios
             } : undefined,
             markArea: lowConfFrom != null && proj ? {
               silent: true, itemStyle: { color: alpha(p.ink3, 0.06) },
-              label: { show: true, position: 'insideTop', color: p.ink3, fontSize: 10, formatter: 'low confidence' },
+              // Phones: the shading alone; the text would collide with the "today" label (the subtitle explains it).
+              label: { show: !narrow, position: 'insideTop', color: p.ink3, fontSize: 10, formatter: 'low confidence' },
               data: [[{ xAxis: lowConfFrom }, { xAxis: Math.min(SEASON_DAYS - 1, lowConfFrom + 6) }]],
             } : undefined,
           },
         ],
       };
     },
-    [clim, season, kToday, projection, showPrev, showScenarios, conv, fmt, unit, zoom],
+    [clim, season, kToday, projection, showPrev, showScenarios, conv, fmt, unit, zoom, narrow],
   );
   return (
     <>
