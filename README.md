@@ -1,6 +1,7 @@
 # PowderWatch
 
-Personal ski-forecast and snowpack dashboard for Crystal Mountain, Whistler Blackcomb and Verbier.
+Personal ski-forecast and snowpack dashboard for Crystal Mountain, Snoqualmie / Alpental, Stevens Pass,
+Whistler Blackcomb and Verbier.
 It compares deterministic models, regional high-res models and ensembles from
 [Open-Meteo](https://open-meteo.com/), runs them all through one set of snow physics, and tracks
 station snow depth against each station's own history, with an ensemble-driven snowpack projection.

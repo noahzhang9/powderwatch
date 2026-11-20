@@ -8,7 +8,7 @@ below for authoritative data.
 
 | Stations | Source | Licence / terms | Required notice |
 |---|---|---|---|
-| Morse Lake, Corral Pass, Cayuse Pass | USDA NRCS National Water and Climate Center (SNOTEL) | US federal government data | — |
+| Morse Lake, Corral Pass, Cayuse Pass, Olallie Meadows, Tinkham Creek, Stampede Pass, Stevens Pass, Fish Lake | USDA NRCS National Water and Climate Center (SNOTEL) | US federal government data | — |
 | Whistler Roundhouse, Callaghan Valley | Environment and Climate Change Canada, MSC GeoMet | [ECCC Data Servers End-use Licence](https://eccc-msc.github.io/open-data/licence/readme_en/) | Data Source: Environment and Climate Change Canada |
 | Callaghan Creek (3A20P), Squamish River Upper (3A25P) | BC River Forecast Centre, Automated Snow Weather Stations | [Open Government Licence – British Columbia](https://www2.gov.bc.ca/gov/content/data/policy-standards/data-policies/open-data/open-government-licence-bc) | Contains information licensed under the Open Government Licence – British Columbia |
 | Lac des Vaux (ATT2), Combatzeline (NEN3) | WSL Institute for Snow and Avalanche Research SLF, IMIS network | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) | WSL Institute for Snow and Avalanche Research SLF, [www.slf.ch](https://www.slf.ch) |

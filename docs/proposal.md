@@ -1,9 +1,9 @@
 # PowderWatch
 ### Personal Ski Forecasting & Snowpack Analytics Platform
 
-**Project Proposal — Revision 2, 19 November 2026**
+**Project Proposal — Revision 3, 20 November 2026**
 
-**Status (as of 2026-11-19):** Phases 1–3 are implemented. Phase 4 (verification) needs a forecast archive. Phase 5 (alerts and personalization) is partly done: trips exist, alerts do not.
+**Status (as of 2026-11-20):** Phases 1–3 are implemented for five resorts. Phase 4 (verification) needs a forecast archive. Phase 5 (alerts and personalization) is partly done: trips exist, alerts do not.
 
 ---
 
@@ -18,13 +18,15 @@ It is not a single snowfall number. It shows:
 - what precipitation becomes at each elevation,
 - what the forecast means for snowpack measured against that station's own history.
 
-**Resorts at launch**
+**Resorts**
 
 - Crystal Mountain, WA
+- Snoqualmie / Alpental (The Summit at Snoqualmie), WA
+- Stevens Pass, WA
 - Whistler Blackcomb, BC
 - Verbier / 4 Vallées, CH
 
-Stevens Pass and Snoqualmie can be added with configuration alone: a resort entry, bands and stations.
+Adding a resort is configuration alone: a resort entry (bands, model list, links) and its stations.
 
 **Primary objectives**
 
@@ -48,6 +50,8 @@ These decisions shape everything below.
 | Model ids | **Pure single-model ids** (`gfs_global`, `gem_global`, `icon_global`, …) | The `*_seamless` ids splice regional models in. For example, `gfs_seamless` is HRRR for the first 48 h in North America. That would double-count models in a blend and mislabel lines. |
 | Run history | **Open-Meteo Single Runs API**, fetched on demand | Past runs are retrievable for about 5 months: runs from 2026-07-01 are available, runs from 2026-04-01 are not. Storm-evolution views therefore need no archive. |
 | Observations | **Scheduled server-side fetch → static JSON** | BC ASWS, SLF and NWAC send no CORS headers. SNOTEL's API fails about half of requests at random. SLF's terms forbid per-end-user calls. |
+| Snapshot cadence | **Every 4 hours** (six runs a day), with a per-run budget that always fits the first screens | Five resorts' first screens cost about 1,170 weighted calls a run (§8); eight runs a day would need about 9,400 of the free tier's 10,000 before any push or manual run. The global models update every 6 to 12 hours, so a 4-hourly snapshot still picks up every cycle. |
+| Snoqualmie and Alpental | **One resort, with Alpental as its upper band** | The Summit's four base areas lie within 4 km of each other on one ticket, in one NWAC zone (Snoqualmie Pass) and near the same SNOTEL stations, and the 9–25 km global models cannot tell Alpental from Summit Central. What differs is elevation: Alpental runs from 3,140 to 5,420 ft, Summit West/Central/East from about 2,600 to 3,865 ft. Bands carry their own coordinates and elevations, so the summit band sits at Alpental's Top Station. A separate Alpental resort would repeat almost identical first screens for about 230 more weighted calls a run. |
 | Hosting | **Static site on GitHub Pages**, built and deployed every 4 hours by a **scheduled GitHub Action** that also writes the forecast snapshot into the site (`data/fc/`, not committed) | One account, no secrets. The snapshot holds raw API responses; ensemble processing (212 members × 384 h) stays in the browser, so no server compute is needed. Netlify's free plan (300 credits/month, 15 per production deploy) cannot absorb 4-hourly deploys; Cloudflare Pages (500 deploys/month, free Access login) is the alternative if the site must be private. |
 
 ---
@@ -66,8 +70,8 @@ These decisions shape everything below.
 | GEM global | ECCC | 15 km | 10 d | computed | all |
 | ICON global | DWD | 13 km | 7.5 d | native | all |
 | UKMO global | UK Met Office | 10 km | 7 d | computed | all |
-| HRRR | NOAA | 3 km | 48 h | native | Crystal, Whistler |
-| HRDPS | ECCC | 2.5 km | 48 h | computed | Crystal, Whistler |
+| HRRR | NOAA | 3 km | 48 h | native | Crystal, Snoqualmie, Stevens, Whistler |
+| HRDPS | ECCC | 2.5 km | 48 h | computed | Crystal, Snoqualmie, Stevens, Whistler |
 | ICON-CH1 | MeteoSwiss | 1 km | 33 h | native | Verbier |
 | ICON-CH2 | MeteoSwiss | 2 km | 5 d | native | Verbier |
 
@@ -94,7 +98,7 @@ Candidates not yet added:
 
 **Views**
 
-- **Elevation bands:** base, mid and summit. Each band has its own coordinates and elevation for downscaling.
+- **Elevation bands:** base, mid and summit. Each band has its own coordinates and elevation for downscaling. At Snoqualmie the summit band is Alpental's Top Station.
 - **Snowfall:** daily view or cumulative view (one line per model plus the blend).
   - Daily blend bars are shaded by amount on a six-step scale, with the day's total printed under each bar and one dot per model.
   - Rain at the band has its own aligned strip in a separate colour, because rain (mm) and snow (cm) cannot share an axis.
@@ -104,7 +108,7 @@ Candidates not yet added:
   - Totals of 7 days or more lead with the ensemble median and its 10–90% range, and warn when the blend leaves the range of the models that remain.
 - **Precipitation type and wind:** under the bars, a strip shows snow, mixed or rain at each elevation band, plus the day's peak gust, flagged at 40 mph and above.
 - **Run-to-run change:** a panel compares each global model's latest run with its run 12 hours earlier for the next 3 and 7 days. Run times show on screen, and runs initialised more than 18 h ago are flagged as stale.
-- **Phones:** 8 days by default with a 16-day toggle; model chips, links and settings collapse.
+- **Phones:** 8 days by default with a 16-day toggle; model chips, links and settings collapse, and the resort nav scrolls sideways.
 - **Last 7 days, measured vs. modelled:** for every station, each column is the 24 h ending that morning.
   - Measured: new snow where the station reports it (SLF, MeteoSwiss); otherwise depth change plus water gained.
   - Modelled: the same physics applied to the models' short-range output at the station's location and elevation, which is the first step towards Phase 4 verification.
@@ -231,11 +235,12 @@ The same period's GFS runs read 74 → 20 → 14 → 0 → 25 cm. A storm vanish
 - **Within 14 days:** expected new snow from 2 days before arrival to the last day, snow level, and a confidence label by lead time.
 - **Further out:** the station's median depth for the trip dates.
 
-**Links:** official snow report, webcams, lift status, avalanche bulletins (NWAC, Avalanche Canada, SLF) and the national weather service.
+**Links:** official snow report, webcams, lift status, avalanche bulletins (NWAC zone forecasts, Avalanche Canada, SLF), NWAC weather-station pages and the national weather service.
 
-**Operating and terrain status:** **no free machine-readable feed exists** for any of the three resorts.
+**Operating and terrain status:** **no free machine-readable feed exists** for any of the five resorts.
 
-- Whistler (Vail) and Crystal pages block non-browser clients.
+- Whistler and Stevens Pass (both Vail) and Crystal pages block non-browser clients; Stevens Pass answers scripted requests with an error page and HTTP 200.
+- Summit at Snoqualmie shows lift and trail status only on its mountain-report page, filled in by the browser.
 - Liftie is behind a Cloudflare challenge.
 - Verbier's live-information page is server-rendered HTML that could be scraped, but it has no API and no reuse terms.
 
@@ -287,6 +292,11 @@ These remain links.
 | Crystal | Morse Lake 642 (SNOTEL) | 1,646 m | depth 2005→ / SWE 1978→ | AWDB REST, CORS, flaky |
 | Crystal | Corral Pass 418 (SNOTEL) | 1,771 m | 2006→ / 1981→ | same |
 | Crystal | Cayuse Pass 1085 (SNOTEL) | 1,603 m | 2006→ / 2006→ | same |
+| Snoqualmie | Olallie Meadows 672 (SNOTEL) | 1,222 m | 2003→ / 1982→ | same; 3 km from mid, same drainage as Alpental and Summit West |
+| Snoqualmie | Tinkham Creek 899 (SNOTEL) | 914 m | 2005→ / 1993→ | same; base-area elevation, Cedar River headwaters |
+| Snoqualmie | Stampede Pass 788 (SNOTEL) | 1,173 m | 2002→ / 1982→ | same; 16 km SSE, a separate pass in the Green River drainage |
+| Stevens | Stevens Pass 791 (SNOTEL) | 1,201 m | 2002→ / 1980→ | same; beside the base area, about 580 m below the summit |
+| Stevens | Fish Lake 478 (SNOTEL) | 1,049 m | 2000→ / 1983→ | same; 22 km S, east of the crest (Cle Elum River headwaters) |
 | Whistler | Whistler Roundhouse 1108906 (ECCC) | 1,835 m | depth 1980→2026-09 | GeoMet OGC API, CORS. **Silent since 2026-09-23.** |
 | Whistler | Callaghan Creek 3A20P (BC ASWS) | 1,017 m | 2018→ / 2018→ | wide CSVs, no CORS |
 | Whistler | Squamish River Upper 3A25P (BC ASWS) | 1,387 m | 2003→ / 1989→ | same; 36 km west |
@@ -295,7 +305,14 @@ These remain links.
 | Verbier | Combatzeline NEN3 (SLF IMIS) | 2,203 m | 2010→ | same |
 | Verbier | Fionnay FIO (MeteoSwiss, manual) | 1,500 m | 2008→, gappy | OGD CSV, CORS |
 
-- **NWAC** has on-site stations at Crystal, but no public API and no stated licence. Data before the current water year isn't accessible, and its CSV export sits behind Turnstile. NWAC is linked, not ingested.
+- Lyman Lake 606 (SNOTEL, 1,826 m) has a long record but sits 52 km from Stevens Pass in the Lake Chelan drainage, so it is not used.
+- **Band elevations** for the two Washington additions:
+
+  | Resort | Base | Mid | Summit | Source |
+  |---|---|---|---|---|
+  | Snoqualmie / Alpental | 896 m (2,940 ft), Summit Central base | 1,178 m (3,865 ft), top of Summit Central | 1,652 m (5,420 ft), Alpental Top Station | Operator trail maps (Summit Central top, Alpental Top Station); USGS 3DEP for the Central base, which the operator does not publish |
+  | Stevens Pass | 1,238 m (4,061 ft) | 1,480 m (4,853 ft), top of Hogsback Express | 1,782 m (5,845 ft), Cowboy Mountain | Operator mountain stats (base, highest point); USGS 3DEP for mid |
+- **NWAC** has on-site stations at Crystal, Alpental, Snoqualmie Pass and Stevens Pass, but no public API and no stated licence. Data before the current water year isn't accessible, and its CSV export sits behind Turnstile. NWAC is linked, not ingested.
 - **Licences:**
   - NRCS: US federal data.
   - ECCC: ECCC Data Servers End-use Licence (credit: "Data Source: Environment and Climate Change Canada").
@@ -383,7 +400,6 @@ Done: trips.
 Next:
 
 - Alerts through a scheduled job: storm totals over a threshold, the snow level crossing the summit, or a run-to-run jump bigger than X.
-- Stevens Pass and Snoqualmie: stations to be confirmed.
 - Optional NBM line.
 
 **Success criteria (measurable):**
@@ -404,12 +420,14 @@ Next:
 | Station data | $0 |
 | Domain | optional |
 
-- **Open-Meteo budget** (measured 2026-11-19):
-  - Open-Meteo counts weighted calls: variables × models (× members, for ensembles) ÷ 10, scaled by days ÷ 14 beyond two weeks, at least 1 per request. Each response reports its cost in `X-RateLimit-Cost`. Free tier: under 10,000 a day, 5,000 an hour and 600 a minute.
-  - Typical costs: the six ensembles at one point, about 97 calls (16 days) to 109 (with 2 past days); a band's deterministic forecast, 7.3; a pressure profile, 19.2; a single past run, 1; run metadata, 0.
-  - **One snapshot run:** 103 requests, 17.3 MB, 1,070.5 weighted calls, about 2 minutes. Per-run budget: 1,125 calls (`SNAPSHOT_MAX_COST`), so 8 scheduled runs a day use at most 9,000 calls (measured run: about 824 requests and 8,560 calls a day). Each push or manual run adds up to one run's budget.
-  - Full coverage would cost about 1,500–1,860 calls a run (12,000–15,000 a day), mostly snowpack inputs at 9 stations (about 108–120 calls per station). The budget keeps, in priority order: run metadata, mid-band forecast and profile, the other bands, mid ensembles, run change, last 7 days, then snowpack inputs at each resort's default station (and its next-day variant near local midnight), then other stations while calls remain. On 2026-11-19 that was the default station at all three resorts plus one more.
-  - **Visitors:** with a fresh snapshot, the dashboard, the Storm tracker at mid (including the lazy panels) and the default Snowpack station make no Open-Meteo calls. Live calls remain for Run history (about 40 small requests per cold load), base/summit ensembles (6 requests, about 97 calls), other snowpack stations (7 requests, about 110 calls), and anything once the snapshot is older than 3.5 h. Live forecasts are cached for 30 minutes and past runs indefinitely.
+- **Open-Meteo budget** (as of 2026-11-20, five resorts):
+  - Open-Meteo counts weighted calls: variables × models (× members, for ensembles) ÷ 10, scaled by days ÷ 14 beyond two weeks, at least 1 per request. Each response reports its cost in `X-RateLimit-Cost`, and `estimateCost` in `scripts/snapshot-plan.ts` reproduces it. Free tier: under 10,000 a day, 5,000 an hour and 600 a minute.
+  - Requests carry only the variables their view uses: six surface variables for the forecast views; temperature, humidity and precipitation alone for the last-7-days panel and the snowpack scenarios; no freezing level in the snowpack ensembles.
+  - Typical costs: the six ensembles at mid, about 97 calls; the snowpack ensembles at a station, about 77–82 (1–2 past days); a band's deterministic forecast (8 models), 5.5; a pressure profile, 19.2; a last-7-days request, 2.4; a snowpack scenario request, about 1.9; a single past run, 1; run metadata, 0.
+  - **First screens** (every band's forecast, mid ensembles and profile, run change, last 7 days, the default Snowpack station): about 1,170 calls a run for five resorts. The 04:20 UTC run needs about 1,500, because its snapshot is still served after Pacific midnight and so also carries the next day's snowpack inputs for the four Pacific resorts.
+  - **Schedule and budget:** six scheduled runs a day. Each run's budget is 1,250 calls (`SNAPSHOT_MAX_COST`, a sixth of 7,500), raised by `runBudget` to fit the first screens and never above 2,000. What is left after the first screens buys other stations' snowpack inputs. Planned total: about 7,500 calls a day. A push or manual run adds about 1,200–1,500, so one a day keeps the total under 10,000.
+  - Full coverage would cost about 1,900–2,900 calls a run, mostly snowpack inputs at up to 15 stations (about 77–88 calls each, twice near a local midnight).
+  - **Visitors:** with a fresh snapshot, the dashboard, the Storm tracker at mid (including the lazy panels), the last 7 days and the default Snowpack station make no Open-Meteo calls. Live calls remain for Run history (about 40 small requests per cold load), base/summit ensembles (6 requests, about 97 calls), other snowpack stations (7 requests, about 80 calls), and anything once the snapshot is older than 4.5 h. These count against the visitor's own IP, not the job's. Live forecasts are cached for 30 minutes and past runs indefinitely.
 - **Single-provider risk:** all forecast data comes through Open-Meteo. The fallback is NOAA NOMADS and ECMWF open data, which means GRIB processing on a server. That is out of scope unless Open-Meteo becomes unavailable.
 
 ---
@@ -457,4 +475,3 @@ Run locally with `npm run preview` (127.0.0.1:4173). The included GitHub Action 
 ## 12. Open Decisions
 
 - **Deployment visibility.** GitHub Pages on a free account is public, and so is the repository. The content is public weather data, and trips never leave the browser. Moving to Cloudflare Pages + Access is a workflow swap if privacy is needed later.
-- **Next resorts.** Stevens Pass and Snoqualmie need stations confirmed: SNOTEL near each pass, and NWAC is link-only.
