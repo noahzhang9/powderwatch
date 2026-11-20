@@ -1,4 +1,5 @@
 import { Component, type ReactNode } from 'react';
+import { storageRemove } from '../lib/storage';
 
 /** Keeps one broken view (bad data, storage, API shape change) from blanking the whole app. */
 export class ErrorBoundary extends Component<{ children: ReactNode; resetKey: string }, { error: Error | null }> {
@@ -24,8 +25,12 @@ export class ErrorBoundary extends Component<{ children: ReactNode; resetKey: st
             type="button"
             className="chip"
             onClick={() => {
-              localStorage.removeItem('pw-trips');
-              indexedDB.deleteDatabase('powderwatch');
+              storageRemove('pw-trips');
+              try {
+                indexedDB.deleteDatabase('powderwatch');
+              } catch {
+                /* storage blocked: nothing was cached */
+              }
               window.location.reload();
             }}
           >

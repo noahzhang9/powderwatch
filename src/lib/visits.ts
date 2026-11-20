@@ -3,6 +3,7 @@
  * reports the change against the previous visit (≥ 30 min earlier).
  */
 import { useEffect } from 'react';
+import { storageGet, storageSet } from './storage';
 
 interface Rec { t: number; v: number }
 interface Store { cur: Rec; prev: Rec | null }
@@ -16,7 +17,7 @@ const isRec = (x: unknown): x is Rec =>
 
 function read(key: string): Store | null {
   try {
-    const raw: unknown = JSON.parse(localStorage.getItem(PREFIX + key) ?? 'null');
+    const raw: unknown = JSON.parse(storageGet(PREFIX + key) ?? 'null');
     if (typeof raw !== 'object' || raw == null) return null;
     const { cur, prev } = raw as Partial<Store>;
     return isRec(cur) ? { cur, prev: isRec(prev) ? prev : null } : null;
@@ -45,11 +46,7 @@ export function recordVisit(key: string, value: number | null, now = Date.now() 
     : startsVisit(store, now)
       ? { cur: { t: now, v: value }, prev: store.cur }
       : { cur: { t: store.cur.t, v: value }, prev: store.prev };
-  try {
-    localStorage.setItem(PREFIX + key, JSON.stringify(next));
-  } catch {
-    /* storage full or disabled */
-  }
+  storageSet(PREFIX + key, JSON.stringify(next));
 }
 
 /**

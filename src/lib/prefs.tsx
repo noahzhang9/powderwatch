@@ -1,5 +1,6 @@
 /** User preferences (units, theme) persisted in localStorage, plus formatters. */
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { storageGet, storageSet } from './storage';
 
 export type Units = 'metric' | 'imperial';
 export type ThemePref = 'system' | 'light' | 'dark';
@@ -16,12 +17,8 @@ interface Prefs {
 const Ctx = createContext<Prefs | null>(null);
 
 function stored<T extends string>(key: string, fallback: T, allowed: readonly T[]): T {
-  try {
-    const v = localStorage.getItem(key) as T | null;
-    return v && allowed.includes(v) ? v : fallback;
-  } catch {
-    return fallback;
-  }
+  const v = storageGet(key) as T | null;
+  return v && allowed.includes(v) ? v : fallback;
 }
 
 function applyTheme(t: ThemePref) {
@@ -49,12 +46,12 @@ export function PrefsProvider({ children }: { children: ReactNode }) {
     () => ({
       units,
       setUnits: (u) => {
-        localStorage.setItem('pw-units', u);
+        storageSet('pw-units', u);
         setUnitsState(u);
       },
       theme,
       setTheme: (t) => {
-        localStorage.setItem('pw-theme', t);
+        storageSet('pw-theme', t);
         applyTheme(t); // before re-render, so charts read the new palette
         setThemeState(t);
       },

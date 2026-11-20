@@ -15,6 +15,7 @@ import { isNum } from '../lib/stats';
 import { snowClass } from '../lib/palette';
 import { dailyCentres, dailyPhase } from '../lib/forecast';
 import { useSinceLastVisit } from '../lib/visits';
+import { storageGet, storageSet } from '../lib/storage';
 import { useNarrow } from '../hooks/useNarrow';
 import { midBand } from '../lib/requests';
 import { Delta } from './storm/Panels';
@@ -332,7 +333,7 @@ function isTrip(t: unknown): t is Trip {
 
 function loadTrips(): Trip[] {
   try {
-    const parsed: unknown = JSON.parse(localStorage.getItem('pw-trips') ?? '[]');
+    const parsed: unknown = JSON.parse(storageGet('pw-trips') ?? '[]');
     return Array.isArray(parsed) ? parsed.filter(isTrip).slice(0, 50) : [];
   } catch {
     return [];
@@ -343,7 +344,7 @@ function Trips() {
   const [trips, setTrips] = useState<Trip[]>(loadTrips);
   const [adding, setAdding] = useState(false);
   const save = (t: Trip[]) => {
-    localStorage.setItem('pw-trips', JSON.stringify(t));
+    storageSet('pw-trips', JSON.stringify(t));
     setTrips(t);
   };
   const upcoming = trips.filter((t) => t.end >= todayIn(resortById(t.resortId)?.tz ?? 'UTC')).sort((a, b) => a.start.localeCompare(b.start));
