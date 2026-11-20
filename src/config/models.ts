@@ -5,13 +5,21 @@
  * double-count them in a blend.
  */
 
-export type Family = 'ECMWF' | 'NOAA' | 'ECCC' | 'DWD' | 'UKMO' | 'MeteoSwiss';
+export type Family = 'ECMWF' | 'NOAA' | 'ECCC' | 'DWD' | 'UKMO' | 'MeteoSwiss' | 'JMA';
+
+/** Each forecast centre as the Methods page and the footer name it. */
+export const CENTRE_NAMES: Record<Family, string> = {
+  ECMWF: 'ECMWF', NOAA: 'NOAA', ECCC: 'ECCC', DWD: 'DWD', UKMO: 'UK Met Office', MeteoSwiss: 'MeteoSwiss', JMA: 'JMA',
+};
 
 export interface ModelDef {
   id: string;
   label: string;
   family: Family;
-  /** Categorical colour slot 1–8 (fixed per model, never re-assigned by rank). */
+  /**
+   * Categorical colour slot 1–8 (fixed per model, never re-assigned by rank). Slots 7 and 8 are shared by
+   * models that no resort shows together (models.test.ts checks).
+   */
   slot: number;
   kind: 'global' | 'regional';
   resolutionKm: number;
@@ -77,7 +85,24 @@ export const MODELS: Record<string, ModelDef> = {
     metaId: 'meteoswiss_icon_ch2', nativeFreezingLevel: true, historyRunsUtc: [0, 6, 12, 18],
     blurb: 'MeteoSwiss 2 km Alpine model, 5-day range.',
   },
+  // JMA publishes no wind gusts and no freezing level (Open-Meteo's JMA docs): the blend's gust median leaves
+  // them out, and their freezing level is computed from the pressure profile. GSM's pressure levels skip
+  // 800 hPa; MSM's are 3-hourly on a 0.1° grid.
+  jma_gsm: {
+    id: 'jma_gsm', label: 'JMA GSM', family: 'JMA', slot: 7, kind: 'global', resolutionKm: 55, horizonH: 264,
+    metaId: 'jma_gsm', nativeFreezingLevel: false, historyRunsUtc: [0, 12],
+    blurb: 'Japan Meteorological Agency Global Spectral Model on its 0.5° open-data grid, in 6-hour steps. Updated every 6 hours; two runs a day reach 11 days, the others 5.5. No wind gusts.',
+  },
+  jma_msm: {
+    id: 'jma_msm', label: 'JMA MSM', family: 'JMA', slot: 8, kind: 'regional', resolutionKm: 5, horizonH: 78,
+    metaId: 'jma_msm', nativeFreezingLevel: false, historyRunsUtc: [0, 12],
+    blurb: 'Japan Meteorological Agency 5 km Meso-Scale Model for Japan and Korea, updated every 3 hours; two runs a day reach 78 h, the others 39 h. No wind gusts.',
+  },
 };
+
+/** The forecast centres behind `modelIds`, in catalogue order, as the site names them. */
+export const centresOf = (modelIds: string[]) =>
+  [...new Set(Object.values(MODELS).filter((m) => modelIds.includes(m.id)).map((m) => CENTRE_NAMES[m.family]))];
 
 export interface EnsembleDef {
   id: string;

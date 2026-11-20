@@ -3,7 +3,7 @@ import { ENSEMBLES, MODELS } from '../config/models';
 import type { MemberSeries } from './ensemble';
 import { RESORTS } from '../config/resorts';
 import { DRIVEN_MIN_CM, blend, blendSnowParts, deriveModel, drivenDays, toDaily, type DerivedHourly } from './forecast';
-import type { SurfaceHourly } from './openmeteo';
+import { PRESSURE_LEVELS, parseProfiles, type OmResponse, type SurfaceHourly } from './openmeteo';
 
 const TZ = 'UTC';
 const DAY = '2026-11-20';
@@ -121,5 +121,41 @@ describe('negative hourly precipitation (de-accumulation artefacts)', () => {
     const b = blend([deriveModel(surface(ID_A, [-3, 1.5])), deriveModel(surface(ID_B, [2, 1.5]))])!;
     expect(b.precip[0]).toBeGreaterThan(0);
     expect(b.precip[1]).toBeCloseTo(1.5);
+  });
+});
+
+describe('a model without gusts or a freezing level of its own (JMA)', () => {
+  const t = [S0, S0 + 3600, S0 + 7200];
+  const Z: Record<number, number> = { 1000: 100, 925: 750, 850: 1450, 800: 1950, 700: 3000, 600: 4200, 500: 5600 };
+  const ids = ['ecmwf_ifs025', 'gfs_global', 'jma_gsm'];
+  // The pressure profile as Open-Meteo returns it for several models (6 °C − 6.5 °C/km): GSM has no 800 hPa level.
+  const hourly: OmResponse['hourly'] = { time: t };
+  for (const m of ids) {
+    for (const p of PRESSURE_LEVELS) {
+      const v = (x: number) => t.map(() => (m === 'jma_gsm' && p === 800 ? null : x));
+      hourly[`temperature_${p}hPa_${m}`] = v(6 - 0.0065 * Z[p]);
+      hourly[`relative_humidity_${p}hPa_${m}`] = v(90);
+      hourly[`geopotential_height_${p}hPa_${m}`] = v(Z[p]);
+    }
+  }
+  const profiles = parseProfiles({ hourly }, ids);
+  const raw = (modelId: string, gust: number | null): SurfaceHourly => ({
+    modelId, time: t, precip: t.map(() => 1), tC: t.map(() => -2), rh: t.map(() => 90), omSnowCm: t.map(() => 0.7),
+    fzl: t.map(() => null), gust: t.map(() => gust),
+  });
+  const models = [deriveModel(raw('ecmwf_ifs025', 20), profiles), deriveModel(raw('gfs_global', 40), profiles), deriveModel(raw('jma_gsm', null), profiles)];
+
+  it('computes its freezing and snow level from the profile, without the missing level', () => {
+    expect(models[2].fzlSource).toBe('computed');
+    expect(models[2].fzl[0]).toBeCloseTo(923, 0);
+    expect(models[2].snowLevel[0]).not.toBeNull();
+  });
+
+  it("leaves it out of the blend's gust (and so the gust strip) but not its snow", () => {
+    const b = blend(models)!;
+    expect(b.count).toEqual([3, 3, 3]);
+    expect(b.gust[0]).toBeCloseTo(30);
+    expect(toDaily(models[2], TZ).map((d) => d.gustMax)).toEqual([null, null]);
+    expect(toDaily(b, TZ).map((d) => d.gustMax)).toEqual([30, 30]);
   });
 });

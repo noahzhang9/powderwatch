@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { ENSEMBLES, MODELS, NBM } from '../src/config/models';
-import { RESORTS } from '../src/config/resorts';
+import { RESORTS, type Resort } from '../src/config/resorts';
 import { STATIONS } from '../src/config/stations';
 import type { StationFile } from '../src/lib/obs';
 import { PREVIOUS_RUN_LEADS, previousRunsUrl, type OmResponse, type RunMeta } from '../src/lib/openmeteo';
@@ -232,6 +232,37 @@ describe('verification record', () => {
   });
 });
 
+/** A Japanese resort with the shared globals and JMA's two models (no stations), beside Crystal. */
+const JMA_RESORT: Resort = {
+  id: 'jma-test', name: 'JMA test', short: 'JMA test', region: 'Hokkaido', tz: 'Asia/Tokyo', links: [],
+  bands: [{ key: 'mid', label: 'Mid', elevation: 800, lat: 42.86, lon: 140.69 }],
+  models: [...CYCLE_MODELS, 'jma_gsm', 'jma_msm'],
+};
+// GSM's 00Z run isn't out yet (about 9.5 h after its start); MSM's 03Z is.
+const JMA_META = { ...allAt('2026-11-20T00:00Z'), ...metaAt({ jma_gsm: '2026-11-19T12:00Z', jma_msm: '2026-11-20T03:00Z' }) };
+const buildWithJma = () => buildVerificationRecord({ nowS: NOW_S, meta: JMA_META, obs: {}, json: fakeResponse, resorts: [CRYSTAL, JMA_RESORT] })!;
+
+describe('a resort that shows JMA models', () => {
+  const rec = buildWithJma();
+  const mid = rec.points.find((p) => p.resort === JMA_RESORT.id)!;
+
+  it("doesn't wait for GSM: the cycle is the shared globals' newest", () => {
+    // As a cycle model, GSM would hold every resort back to yesterday's 12Z.
+    expect(chooseCycle(JMA_META, [...CYCLE_MODELS, 'jma_gsm'])!.cycleS).toBe(T('2026-11-19T12:00:00Z'));
+    expect(cycleModels([CRYSTAL, JMA_RESORT])).toEqual(CYCLE_MODELS);
+    expect(rec.cycle).toBe('2026-11-20T00Z');
+    expect(rec.lagging).toEqual([]);
+    expect(rec.runs).toMatchObject({ jma_gsm: '2026-11-19T12:00Z', jma_msm: '2026-11-20T03:00Z' });
+  });
+
+  it('archives both JMA models at mid, on local days in Japan', () => {
+    expect(mid.tz).toBe('Asia/Tokyo');
+    expect(mid.days[0]).toBe('2026-11-21'); // 00Z is 09:00 in Japan
+    expect(Object.keys(mid.models)).toEqual(expect.arrayContaining(['jma_gsm', 'jma_msm']));
+    expect(mid.blend!.centres![0]).toBe(6); // ECMWF, NOAA, ECCC, DWD, UKMO, JMA
+  });
+});
+
 /** A canned Previous Runs response for local dates start..end: 1 mm/h at −5 °C for every lead, except ICON's 7th (beyond its range). */
 function fakePreviousRuns(url: string): OmResponse {
   const q = new URL(url).searchParams;
@@ -306,6 +337,13 @@ describe.skipIf(!python)('validate_verification.py', () => {
       (r.runs as Record<string, string>).jma_msm = '2026-11-20T03:00Z';
       (r.skipped as { resort: string }[]).forEach((s) => (s.resort = 'niseko'));
     }));
+    expect(res.stderr).toBe('');
+    expect(res.status).toBe(0);
+  });
+
+  it('accepts what the builder writes for a resort that shows JMA models', () => {
+    const r = buildWithJma();
+    const res = run('--check', write(recordFileName(r), JSON.stringify(r)));
     expect(res.stderr).toBe('');
     expect(res.status).toBe(0);
   });

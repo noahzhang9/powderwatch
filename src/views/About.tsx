@@ -1,4 +1,4 @@
-import { ENSEMBLES, MODELS, NBM, horizonText } from '../config/models';
+import { ENSEMBLES, MODELS, NBM, centresOf, horizonText } from '../config/models';
 import { RESORTS } from '../config/resorts';
 import { SNODAS_ABOUT, SNODAS_CITATION, SNODAS_DOI, SNODAS_FIRST_SEASON, SNODAS_POINTS, SNODAS_RESORTS, STATIONS } from '../config/stations';
 import { SNAPSHOT_INTERVAL_H, SNAPSHOT_MAX_AGE_S } from '../lib/cache';
@@ -10,6 +10,9 @@ import { DRIVEN_MIN_CM, DRIVEN_SHARE, LOW_CENTRES, PHASE_BAND_M } from '../lib/f
 import { useFmt } from '../lib/prefs';
 import { WPC_ATTRIBUTION, WPC_CATEGORY_LABEL, WPC_THRESHOLDS_IN } from '../lib/wpc';
 import { BEST_DAY_MIN_CM, GRID_DAYS, NARROW_GRID_DAYS } from './Dashboard';
+
+/** The models some resort shows: the catalogue may hold more, which the page doesn't mention. */
+const SHOWN = RESORTS.flatMap((r) => r.models);
 
 export function About() {
   const fmt = useFmt();
@@ -44,11 +47,11 @@ export function About() {
 
       <h2>Blend and ensembles</h2>
       <ul className="list-disc pl-5">
-        <li>Blend: every forecast centre (ECMWF, NOAA, ECCC, DWD, UK Met Office, MeteoSwiss) gets equal weight each hour, split among its models that have data. Snow and rain use the weighted mean (totals stay consistent across daily and cumulative views); temperatures and levels use the weighted median.</li>
+        <li>Blend: every forecast centre ({centresOf(SHOWN).join(', ')}) gets equal weight each hour, split among its models that have data. Snow and rain use the weighted mean (totals stay consistent across daily and cumulative views); temperatures and levels use the weighted median.</li>
         <li>
           High-resolution regional models resolve terrain and the timing of showers better than the global models, but run only a day or two
           ahead, so later days rest on the global models. They join the blend only within their range (
-          {Object.values(MODELS).filter((m) => m.kind === 'regional').map((m) => `${m.label} ${horizonText(m.horizonH)}`).join(', ')}). On the
+          {Object.values(MODELS).filter((m) => m.kind === 'regional' && SHOWN.includes(m.id)).map((m) => `${m.label} ${horizonText(m.horizonH)}`).join(', ')}). On the
           Forecast tab their mark is a diamond, and their model pill shows that range.
         </li>
         <li>Official guidance (below) is never part of the blend.</li>

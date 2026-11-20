@@ -10,6 +10,10 @@ import { About } from './views/About';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { WPC_ATTRIBUTION, WPC_PAGE } from './lib/wpc';
 import { SNODAS_ATTR, SNODAS_DOI } from './config/stations';
+import { centresOf } from './config/models';
+
+/** The forecast centres behind the models the resorts show, as one phrase ("ECMWF, NOAA … and MeteoSwiss"). */
+const CENTRES = new Intl.ListFormat('en-GB').format(centresOf(RESORTS.flatMap((r) => r.models)));
 
 export function App() {
   const { parts, query } = useRoute();
@@ -75,7 +79,7 @@ export function App() {
       <footer className="max-w-7xl mx-auto px-4 pb-8 text-[11px] text-ink-3 leading-relaxed [&_a]:underline">
         {!isSnapshotOnly() && <p className="mb-1"><SnapshotFreshness /></p>}
         <p>
-          Forecasts: <a href="https://open-meteo.com/">Open-Meteo</a> (<a href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0</a>), from ECMWF, NOAA, ECCC, DWD, UK Met Office and MeteoSwiss models.
+          Forecasts: <a href="https://open-meteo.com/">Open-Meteo</a> (<a href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0</a>), from {CENTRES} models.
           Official guidance (US resorts): NOAA National Blend of Models, via Open-Meteo; winter precipitation outlook from the{' '}
           <a href={WPC_PAGE}>{WPC_ATTRIBUTION}</a>.
         </p>
