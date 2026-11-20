@@ -129,6 +129,9 @@ function ProbCell({ pr, title }: { pr: number | null; title?: string }) {
   );
 }
 
+/** Labels that may wrap (index.css keeps table cells on one line), so every column fits a phone's width. */
+const WRAP = { whiteSpace: 'normal' } as const;
+
 /** Ensemble chances as a compact, shaded table (shade = probability). */
 export function Chances({ ens, now, resort, fmt }: { ens?: EnsembleSet; now: number; resort: Resort; fmt: Fmt }) {
   if (!ens) return null;
@@ -140,7 +143,7 @@ export function Chances({ ens, now, resort, fmt }: { ens?: EnsembleSet; now: num
       subtitle={`Share of ${ens.members.length} ensemble members (each forecast centre weighted equally) reaching each total from now. Model spread, not a verified probability.`}
     >
       <div className="overflow-x-auto">
-        <table className="data [&_td:first-child]:whitespace-normal">
+        <table className="data">
           <thead>
             <tr><th>At least</th>{horizons.map((h) => <th key={h}>{h / 24} days</th>)}</tr>
           </thead>
@@ -156,7 +159,7 @@ export function Chances({ ens, now, resort, fmt }: { ens?: EnsembleSet; now: num
             ))}
             {resort.bands.slice(1).map((b) => (
               <tr key={b.key}>
-                <td>Freezing level above {bandInText(b)} ({fmt.elev(b.elevation)})</td>
+                <td style={WRAP}>Freezing level above {bandInText(b)} ({fmt.elev(b.elevation)})</td>
                 {horizons.map((h) => {
                   const pr = probabilityFzlAbove(ens.time, ens.members, now, now + h * 3600, b.elevation);
                   return <td key={h}>{pr == null ? '—' : `${Math.round(pr * 100)}%`}</td>;
@@ -232,7 +235,7 @@ export function WpcChances({ wpc, loading, error, resort, fmt }: {
           <table className="data">
             <thead>
               <tr>
-                <th>At least</th>
+                <th style={WRAP}>At least</th>
                 {wpc.days.map((d, i) => (
                   <th key={i} style={{ whiteSpace: 'normal' }}>
                     Day {i + 1}
