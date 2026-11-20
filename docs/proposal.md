@@ -415,7 +415,7 @@ Next:
 | Component | Monthly cost |
 |---|---:|
 | GitHub Pages (static, public repo) | $0 |
-| GitHub Actions (4-hourly job; the snapshot step takes about 2 min) | $0 for a public repo |
+| GitHub Actions (4-hourly job; the snapshot step takes about 3 min) | $0 for a public repo |
 | Open-Meteo | $0 under non-commercial terms |
 | Station data | $0 |
 | Domain | optional |
@@ -426,6 +426,7 @@ Next:
   - Typical costs: the six ensembles at mid, about 97 calls; the snowpack ensembles at a station, about 77–82 (1–2 past days); a band's deterministic forecast (8 models), 5.5; a pressure profile, 19.2; a last-7-days request, 2.4; a snowpack scenario request, about 1.9; a single past run, 1; run metadata, 0.
   - **First screens** (every band's forecast, mid ensembles and profile, run change, last 7 days, the default Snowpack station): about 1,170 calls a run for five resorts. The 04:20 UTC run needs about 1,500, because its snapshot is still served after Pacific midnight and so also carries the next day's snowpack inputs for the four Pacific resorts.
   - **Schedule and budget:** six scheduled runs a day. Each run's budget is 1,250 calls (`SNAPSHOT_MAX_COST`, a sixth of 7,500), raised by `runBudget` to fit the first screens and never above 2,000. What is left after the first screens buys other stations' snowpack inputs. Planned total: about 7,500 calls a day. A push or manual run adds about 1,200–1,500, so one a day keeps the total under 10,000.
+  - **One snapshot run** (measured 2026-11-20 00:24 UTC): 147 requests, no retries or failures, 19.8 MB, 1,233.4 weighted calls (`X-RateLimit-Cost`, equal to the estimate), 181 s. First screens took 1,149.7 of those; the rest bought one more station (Corral Pass). Eight lower-priority snowpack groups were skipped.
   - Full coverage would cost about 1,900–2,900 calls a run, mostly snowpack inputs at up to 15 stations (about 77–88 calls each, twice near a local midnight).
   - **Visitors:** with a fresh snapshot, the dashboard, the Storm tracker at mid (including the lazy panels), the last 7 days and the default Snowpack station make no Open-Meteo calls. Live calls remain for Run history (about 40 small requests per cold load), base/summit ensembles (6 requests, about 97 calls), other snowpack stations (7 requests, about 80 calls), and anything once the snapshot is older than 4.5 h. These count against the visitor's own IP, not the job's. Live forecasts are cached for 30 minutes and past runs indefinitely.
 - **Single-provider risk:** all forecast data comes through Open-Meteo. The fallback is NOAA NOMADS and ECMWF open data, which means GRIB processing on a server. That is out of scope unless Open-Meteo becomes unavailable.
