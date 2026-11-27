@@ -43,6 +43,7 @@ For browser checks, use `npm run preview:local`, not a fresh `npm run snapshot`.
 | `src/lib/openmeteo.ts` | Pure URL builders + fetchers for every Open-Meteo request |
 | `src/lib/requests.ts` | Each view's request choices (points, model lists, `pastDays`, …), shared by the views and the snapshot plan |
 | `src/lib/cache.ts` | Fetch cache: memory → IndexedDB → snapshot manifest → live, with priority scheduling and 429 backoff. Snapshot-only builds never go live (`snapshotUse`), and neither do `{ live: false }` requests |
+| `src/lib/export.ts` | The Forecast tab's Export menu: a Markdown summary to paste into an AI chat ("Copy for AI") and a tidy daily CSV, built from data the page has loaded, with the sources' attribution; exporting makes no request |
 | `src/lib/benchmarks.ts`, `src/lib/wpc.ts` | Official guidance: NBM per local day; WPC's parser, static-file format and the browser's validation of it |
 | `src/hooks/data.ts` | `load*` functions and hooks that assemble requests into view data |
 | `src/views/` | Dashboard, Forecast tab (`StormView.tsx`, `storm/`, route `#/resort/<id>/storm`), Run history, Snowpack, Methods (`About.tsx`) |

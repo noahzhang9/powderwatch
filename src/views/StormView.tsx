@@ -16,6 +16,7 @@ import { dayLabel, localDate, localHourLabel, nowUnix, todayIn } from '../lib/ti
 import { RecentSection } from './RecentSection';
 import { DailyLegend, DailySnowChart, PhaseGustStrip, RainStrip, drivenSummary, nbmSnowOn } from './storm/Daily';
 import { Chances, RunChangeSummary, RunChangeTable, RunsRow, Totals, WpcChances, useRunChange } from './storm/Panels';
+import { ExportMenu } from './storm/Export';
 
 const BANDS = ['base', 'mid', 'summit'] as const;
 const VIEWS = ['daily', 'cumulative'] as const;
@@ -147,6 +148,7 @@ export function StormView({ resort }: { resort: Resort }) {
                   {narrow ? 'Raw 7:1' : 'Open-Meteo raw snowfall (7:1)'}
                 </label>
                 <button type="button" className="btn" aria-pressed={showTable} onClick={() => setShowTable((s) => !s)}>{showTable ? 'Hide table' : 'Table'}</button>
+                <ExportMenu input={{ resort, band, data, fmt, nowS: now, today, dists, driven, centres, phases, ens: ens.data, meta: meta.data, nbm: nbmData }} />
               </div>
             }
           >
