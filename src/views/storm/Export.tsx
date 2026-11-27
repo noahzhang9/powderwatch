@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { snapshotInfo } from '../../lib/cache';
-import { exportFileName, forecastDailyCsv, forecastMarkdown, type ForecastExportInput } from '../../lib/export';
+import { exportFileName, forecastBlocksCsv, forecastDailyCsv, forecastMarkdown, type ForecastExportInput } from '../../lib/export';
 
 /** How long the menu's confirmation ("Copied") stays, ms. */
 const STATUS_MS = 2500;
@@ -55,6 +55,11 @@ export function ExportMenu({ input }: { input: Omit<ForecastExportInput, 'snapsh
     saveFile(exportFileName(input, 'daily.csv'), forecastDailyCsv(await full()), 'text/csv');
     say('Saved the daily CSV');
   };
+  const downloadBlocks = async () => {
+    close();
+    saveFile(exportFileName(input, '3-hourly.csv'), forecastBlocksCsv(await full()), 'text/csv');
+    say('Saved the 3-hourly CSV');
+  };
 
   return (
     <span className="relative inline-flex items-center gap-2">
@@ -70,6 +75,10 @@ export function ExportMenu({ input }: { input: Omit<ForecastExportInput, 'snapsh
           <button type="button" role="menuitem" className="block w-full text-left rounded px-2.5 py-1.5 hover:bg-surface-2 focus-visible:outline-2 focus-visible:outline-accent" onClick={downloadCsv}>
             Download CSV (daily)
             <span className="block text-[11px] text-ink-3">One row per day, model and variable, in the units shown</span>
+          </button>
+          <button type="button" role="menuitem" className="block w-full text-left rounded px-2.5 py-1.5 hover:bg-surface-2 focus-visible:outline-2 focus-visible:outline-accent" onClick={downloadBlocks}>
+            Download CSV (3-hourly)
+            <span className="block text-[11px] text-ink-3">Every 3 hours in local time: the blend, each model and the ensemble</span>
           </button>
         </div>
       </details>

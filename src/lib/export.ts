@@ -13,6 +13,7 @@ import { LOW_CENTRES, type DailyRow, type DrivenDay, type Phase } from './foreca
 import type { RunMeta } from './openmeteo';
 import type { Fmt } from './prefs';
 import { localDate, runLabel, zoneName } from './time';
+import { dayBlocks } from './blocks';
 
 export interface ForecastExportInput {
   resort: Resort;
@@ -232,6 +233,50 @@ export function forecastDailyCsv(input: ForecastExportInput): string {
     `# Source: Open-Meteo (open-meteo.com; CC BY 4.0) from ${centresOf(data.models.map((m) => m.model.id)).join(' / ')} models. Exported from PowderWatch: ${input.siteUrl.replace(/,/g, '%2C')}`,
   ];
   return [...header, 'date,series,variable,value,unit', ...rows.map((r) => r.map(csvField).join(','))].join('\n') + '\n';
+}
+
+/** 3-hour blocks for every day from today: start,end (local ISO),series,variable,value,unit. */
+export function forecastBlocksCsv(input: ForecastExportInput): string {
+  const { resort, band, data, fmt } = input;
+  const u = units(fmt);
+  const rows: (string | number | null)[][] = [];
+  const iso = (t: number) => {
+    const d = new Date(t * 1000).toLocaleString('sv-SE', { timeZone: resort.tz, hour12: false }).replace(' ', 'T');
+    return d.slice(0, 16);
+  };
+  for (const d of days(input)) {
+    for (const b of dayBlocks(data, d.date, resort.tz, band.elevation, input.ens)) {
+      const at = [iso(b.start), iso(b.end)];
+      const add = (series: string, variable: string, value: number | string | null, unit: string) => {
+        if (value != null) rows.push([...at, series, variable, value, unit]);
+      };
+      add('blend', 'snow', u.snow(b.snowCm), fmt.snowUnit);
+      add('blend', 'rain', u.water(b.rainMm), fmt.waterUnit);
+      add('blend', 'precipitation', u.water(b.precipMm), fmt.waterUnit);
+      add('blend', 'temperature_min', u.temp(b.tMin), fmt.tempUnit);
+      add('blend', 'temperature_max', u.temp(b.tMax), fmt.tempUnit);
+      add('blend', 'snow_level_min', u.elev(b.snowLevelMin), fmt.elevUnit);
+      add('blend', 'snow_level_max', u.elev(b.snowLevelMax), fmt.elevUnit);
+      add('blend', 'gust_max', u.wind(b.gustMax), fmt.windUnit);
+      add('blend', 'precipitation_type', b.phase, 'text');
+      add('blend', 'open_meteo_snowfall_7to1_comparison_only', u.snow(b.omSnowCm), fmt.snowUnit);
+      for (const m of b.models) {
+        add(MODELS[m.id]?.label ?? m.id, 'snow', u.snow(m.snowCm), fmt.snowUnit);
+        if (m.coarse) add(MODELS[m.id]?.label ?? m.id, 'spread_from_coarser_output', 1, 'flag');
+      }
+      if (b.ens) {
+        add('ensemble', 'snow_p10', u.snow(b.ens.p10), fmt.snowUnit);
+        add('ensemble', 'snow_p50', u.snow(b.ens.p50), fmt.snowUnit);
+        add('ensemble', 'snow_p90', u.snow(b.ens.p90), fmt.snowUnit);
+      }
+    }
+  }
+  const header = [
+    `# PowderWatch 3-hourly forecast: ${resort.name}; ${band.label.toLowerCase()} band at lat ${band.lat} lon ${band.lon} and ${u.elev(band.elevation)} ${fmt.elevUnit}; times are local (${resort.tz}) and each block runs from start to end`,
+    '# Snow is PowderWatch physics for every model; a coarse model (3- or 6-hourly output) has its amount spread evenly so its timing within a block is approximate; ensemble percentiles are model spread.',
+    `# Source: Open-Meteo (open-meteo.com; CC BY 4.0) from ${centresOf(data.models.map((m) => m.model.id)).join(' / ')} models. Exported from PowderWatch: ${input.siteUrl.replace(/,/g, '%2C')}`,
+  ];
+  return [...header, 'start,end,series,variable,value,unit', ...rows.map((r) => r.map(csvField).join(','))].join('\n') + '\n';
 }
 
 /** A file name such as powderwatch-crystal-mid-2026-11-27-daily.csv. */

@@ -6,7 +6,7 @@
  */
 import { useCallback, type CSSProperties } from 'react';
 import type { Resort } from '../../config/resorts';
-import { Chart, baseOption, tipHeader, tipRow, type EChartsCoreOption } from '../../components/Chart';
+import { Chart, baseOption, tipHeader, tipRow, type ChartClick, type EChartsCoreOption } from '../../components/Chart';
 import { NBM } from '../../config/models';
 import type { BandForecast, NbmForecast } from '../../hooks/data';
 import type { DayDist } from '../../lib/ensemble';
@@ -16,8 +16,8 @@ import type { Fmt } from '../../lib/prefs';
 import { dayLabel, runHour, shortDate } from '../../lib/time';
 
 /** Shared plot margins so every strip lines up with the bars. */
-const GRID_L = 52;
-const GRID_R = 16;
+export const GRID_L = 52;
+export const GRID_R = 16;
 /** Defined in lib/forecast (drivenDays uses it too); re-exported for the views that import it from here. */
 export { LOW_CENTRES };
 const WIND_HOLD_KMH = 64; // ≈ 40 mph gusts: lift-hold territory
@@ -40,6 +40,10 @@ export interface DailyContext {
   today: string;
   /** NOAA NBM when "Compare with official guidance" is on: its own snowfall as a benchmark mark. */
   nbm?: NbmForecast | null;
+  /** Opens a day's 3-hour breakdown: a click on its bar, a model mark or its date label. */
+  onDayClick?: (date: string) => void;
+  /** The day whose breakdown is open: its bar is outlined in ink. */
+  selected?: string;
 }
 
 const longDay = (iso: string) => `${dayLabel(iso).split(' ')[0]} ${shortDate(iso)}`;
@@ -69,7 +73,7 @@ export function nbmSnowOn(nbm: NbmForecast | null | undefined, date: string): nu
 }
 
 export function DailySnowChart(ctx: DailyContext) {
-  const { data, days, dists, driven, centres, visible, fmt, narrow, rawSnow, today, nbm } = ctx;
+  const { data, days, dists, driven, centres, visible, fmt, narrow, rawSnow, today, nbm, onDayClick, selected } = ctx;
   const key = rawSnow ? 'omSnowCm' : 'snowCm';
   const option = useCallback(
     (p: ChartPalette): EChartsCoreOption => {
@@ -88,6 +92,7 @@ export function DailySnowChart(ctx: DailyContext) {
         grid: { left: GRID_L, right: GRID_R, top: 18, bottom: (narrow ? 50 : 60) + 13 * extraLines },
         xAxis: {
           ...(base.xAxis as object), type: 'category', data: days.map((d) => d.date),
+          triggerEvent: onDayClick != null, // date labels are clickable too
           axisLabel: {
             interval: 0, margin: 10,
             formatter: (date: string) => {
@@ -145,11 +150,12 @@ export function DailySnowChart(ctx: DailyContext) {
             type: 'bar', name: 'Blend', barWidth: '58%', z: 1,
             data: days.map((d) => {
               const c = p.snowRamp[snowClass(d[key])];
+              const style = lowConf(d)
+                ? { color: alpha(c, 0.3), borderColor: c, borderWidth: 1.5, borderRadius: [4, 4, 0, 0] }
+                : { color: c, borderRadius: [4, 4, 0, 0] };
               return {
                 value: fmt.snowVal(d[key]),
-                itemStyle: lowConf(d)
-                  ? { color: alpha(c, 0.3), borderColor: c, borderWidth: 1.5, borderRadius: [4, 4, 0, 0] }
-                  : { color: c, borderRadius: [4, 4, 0, 0] },
+                itemStyle: d.date === selected ? { ...style, borderColor: p.ink1, borderWidth: 2 } : style,
               };
             }),
             markArea: firstLow >= 0 ? {
@@ -173,14 +179,21 @@ export function DailySnowChart(ctx: DailyContext) {
         ],
       };
     },
-    [data, days, dists, driven, centres, visible, fmt, narrow, rawSnow, today, key, nbm],
+    [data, days, dists, driven, centres, visible, fmt, narrow, rawSnow, today, key, nbm, onDayClick, selected],
   );
+  const onClick = onDayClick
+    ? (e: ChartClick) => {
+        const date = e.componentType === 'xAxis' ? String(e.value ?? '') : e.dataIndex != null ? days[e.dataIndex]?.date : undefined;
+        if (date && days.some((d) => d.date === date)) onDayClick(date);
+      }
+    : undefined;
   const total = days.reduce((s, d) => s + (d[key] ?? 0), 0);
   const biggest = days.reduce<DailyRow | null>((b, d) => ((d[key] ?? 0) > (b?.[key] ?? 0) ? d : b), null);
   const outliers = rawSnow ? [] : days.filter((d) => driven?.has(d.date));
   return (
     <Chart
       option={option}
+      onClick={onClick}
       height={narrow ? 260 : 300}
       ariaLabel={`Daily snowfall, next ${days.length} days: blend total ${fmt.snow(total)}${biggest ? `, biggest day ${longDay(biggest.date)} with ${fmt.snow(biggest[key])}` : ''}.` +
         (outliers.length ? ` Outlier totals, resting on one model: ${outliers.map((d) => longDay(d.date)).join(', ')}.` : '') +

@@ -17,6 +17,7 @@ import { RecentSection } from './RecentSection';
 import { DailyLegend, DailySnowChart, PhaseGustStrip, RainStrip, drivenSummary, nbmSnowOn } from './storm/Daily';
 import { Chances, RunChangeSummary, RunChangeTable, RunsRow, Totals, WpcChances, useRunChange } from './storm/Panels';
 import { ExportMenu } from './storm/Export';
+import { DayBreakdown } from './storm/DayBreakdown';
 
 const BANDS = ['base', 'mid', 'summit'] as const;
 const VIEWS = ['daily', 'cumulative'] as const;
@@ -72,6 +73,10 @@ export function StormView({ resort }: { resort: Resort }) {
   const phases = useMemo(() => (data ? dailyPhase(data.blend, resort.tz, resort.bands.map((b) => b.elevation)) : new Map()), [data, resort]);
   const dists = useMemo(() => (ens.data ? dailyDistributions(ens.data.time, ens.data.members, (t) => localDate(t, resort.tz)) : null), [ens.data, resort.tz]);
   const driven = useMemo(() => (data ? drivenDays(data, resort.tz, ens.data) : null), [data, ens.data, resort.tz]);
+  // The day whose 3-hour breakdown is open (daily view only), remembered in the URL: any forecast day from today.
+  const dayDates = useMemo(() => (data ? data.blendDaily.filter((d) => d.date >= today).map((d) => d.date) : []), [data, today]);
+  const [openDay, setOpenDay] = useHashParam<string>('day', '', ['', ...dayDates]);
+  const toggleDay = (date: string) => setOpenDay(date === openDay ? '' : date);
 
   const chips = data && (
     <div className="flex flex-wrap gap-2" role="group" aria-label="Models (toggle visibility)">
@@ -137,7 +142,7 @@ export function StormView({ resort }: { resort: Resort }) {
           <Section
             title={`Snowfall at ${bandInText(band)} (${fmt.elev(band.elevation)})`}
             subtitle={mode === 'daily'
-              ? 'Blend of all models, shaded by amount, total under each day. Hover a day for every model, the ensemble range and whether the models are split.'
+              ? 'Blend of all models, shaded by amount, total under each day. Hover a day for every model, the ensemble range and whether the models are split; click it for its 3-hour breakdown.'
               : 'Cumulative snowfall from now, the blend and each model shown.'}
             right={
               <div className="flex flex-wrap gap-2">
@@ -154,10 +159,25 @@ export function StormView({ resort }: { resort: Resort }) {
           >
             {mode === 'daily' ? (
               <>
-                <DailySnowChart data={data} days={days} dists={dists} driven={driven} centres={centres} phases={phases} visible={visible} resort={resort} fmt={fmt} narrow={narrow} rawSnow={rawSnow} today={today} nbm={nbmData} />
+                {/* Keyboard path to the breakdown (the chart's bars aren't focusable): shown once focus enters it. */}
+                <div className="sr-only focus-within:not-sr-only focus-within:flex flex-wrap items-center gap-1 text-xs mb-2" role="group" aria-label="3-hour breakdown by day">
+                  <span className="text-ink-2 mr-1">3-hour breakdown:</span>
+                  {days.map((d) => (
+                    <button key={d.date} type="button" className="btn" aria-pressed={d.date === openDay} onClick={() => toggleDay(d.date)}>
+                      {d.date === today ? 'Today' : dayLabel(d.date)}
+                    </button>
+                  ))}
+                </div>
+                <DailySnowChart data={data} days={days} dists={dists} driven={driven} centres={centres} phases={phases} visible={visible} resort={resort} fmt={fmt} narrow={narrow} rawSnow={rawSnow} today={today} nbm={nbmData} onDayClick={toggleDay} selected={openDay || undefined} />
                 <RainStrip days={days} fmt={fmt} />
                 <PhaseGustStrip days={days} phases={phases} resort={resort} fmt={fmt} narrow={narrow} />
                 <DailyLegend fmt={fmt} nbm={nbmData} tz={resort.tz} />
+                {openDay && (
+                  <DayBreakdown
+                    date={openDay} dates={dayDates} data={data} ens={ens.data} visible={visible} resort={resort} band={band}
+                    fmt={fmt} narrow={narrow} rawSnow={rawSnow} onSelect={setOpenDay} onClose={() => setOpenDay('')}
+                  />
+                )}
                 {official && nbm.error && <RequestError what={NBM.label} error={nbm.error} retry={nbm.retry} />}
               </>
             ) : (

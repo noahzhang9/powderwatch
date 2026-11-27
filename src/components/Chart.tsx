@@ -11,22 +11,45 @@ echarts.use([BarChart, LineChart, ScatterChart, GridComponent, TooltipComponent,
 
 export type { EChartsCoreOption };
 
+/**
+ * What a click reports: a series item (`dataIndex`), an axis label with `triggerEvent` (`value`), or a click
+ * on empty plot space (`componentType: 'grid'`, with the category under it as `dataIndex`).
+ */
+export interface ChartClick {
+  componentType: string;
+  dataIndex?: number;
+  value?: unknown;
+}
+
 interface Props {
   /** Builds the option from the current theme palette. */
   option: (p: ChartPalette) => EChartsCoreOption;
   height: number;
   ariaLabel: string;
+  onClick?: (e: ChartClick) => void;
 }
 
 /** Thin ECharts wrapper: SVG renderer, resize-aware, rebuilds on theme change. */
-export function Chart({ option, height, ariaLabel }: Props) {
+export function Chart({ option, height, ariaLabel, onClick }: Props) {
   const ref = useRef<HTMLDivElement>(null);
   const inst = useRef<echarts.ECharts | null>(null);
+  const click = useRef(onClick);
+  click.current = onClick;
   const { dark } = usePrefs();
 
   useEffect(() => {
     if (!ref.current) return;
     inst.current = echarts.init(ref.current, undefined, { renderer: 'svg' });
+    inst.current.on('click', (e) => click.current?.(e as ChartClick));
+    // Empty plot space (above a short bar, between marks): report the category column under the pointer.
+    inst.current.getZr().on('click', (e) => {
+      const chart = inst.current;
+      if (!chart || e.target || !click.current) return;
+      const at: [number, number] = [e.offsetX, e.offsetY];
+      if (!chart.containPixel('grid', at)) return;
+      const index = (chart.convertFromPixel({ gridIndex: 0 }, at) as number[] | undefined)?.[0];
+      if (Number.isInteger(index)) click.current({ componentType: 'grid', dataIndex: index as number });
+    });
     const ro = new ResizeObserver(() => inst.current?.resize());
     ro.observe(ref.current);
     return () => {
@@ -41,7 +64,7 @@ export function Chart({ option, height, ariaLabel }: Props) {
     inst.current?.setOption(option(readPalette()), { notMerge: true });
   }, [option, dark]);
 
-  return <div ref={ref} role="img" aria-label={ariaLabel} style={{ height, width: '100%' }} />;
+  return <div ref={ref} role="img" aria-label={ariaLabel} style={{ height, width: '100%', cursor: onClick ? 'pointer' : undefined }} />;
 }
 
 /** Shared axis/grid/tooltip styling. */
